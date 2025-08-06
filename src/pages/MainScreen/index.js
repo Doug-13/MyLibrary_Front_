@@ -45,7 +45,7 @@ export default function MainScreen() {
         if (updatedSections.length === 0) {
           setError('Nenhum livro encontrado com os filtros aplicados.');
         } else {
-          setError(null); // Remove a mensagem de erro se os filtros encontrarem resultados
+          setError(null); // Remove a mensagem de erro se os filtros encontrgit statisarem resultados
         }
       }
     }, [originalSections, showPrivateBooks, showLoanedBooks, showAllBooks])
