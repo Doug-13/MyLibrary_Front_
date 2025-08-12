@@ -1,807 +1,674 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
-import { SafeAreaView, Text, TextInput, StyleSheet, Button, Alert, View, Image, ScrollView, TouchableOpacity, ActivityIndicator, } from 'react-native';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
+import {
+  SafeAreaView,
+  Text,
+  TextInput,
+  StyleSheet,
+  Alert,
+  View,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { RadioButton } from 'react-native-paper';
 import { Picker } from '@react-native-picker/picker';
-import { storage } from '../../firebase/firebase.config.js';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { AuthContext } from '../../../context/AuthContext.js';
-import DateTimePickerModal from "react-native-modal-datetime-picker";
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+// Se estiver usando Expo, descomente a linha abaixo e instale expo-image-picker
 // import * as ImagePicker from 'expo-image-picker';
-import { deleteObject } from 'firebase/storage';
 
-import { API_BASE_URL } from '../../config/api.js'; 
+import { storage } from '../../firebase/firebase.config.js';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
-const EditBooks = ({ route, navigation }) => {
-    const { bookId } = route.params || {}; // bookId pode ser indefinido
-    const { userId, userMongoId } = useContext(AuthContext);
-    const { control, handleSubmit, setValue, reset } = useForm();
-    const [isPublic, setIsPublic] = useState(true);
-    const [isLearn, setIsLearn] = useState(true);
-    const [image, setImage] = useState(null);
-    const [isImageFromAPI, setIsImageFromAPI] = useState(false);
-    const [bookDetails, setBookDetails] = useState(null);
-    const [genres, setGenres] = useState([]);
-    const [selectedGenre, setSelectedGenre] = useState('');
-    const [customGenre, setCustomGenre] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [currentPage, setCurrentPage] = useState('');
-    const [isOtherGenre, setIsOtherGenre] = useState(false);
-    const [rating, setRating] = useState(0);
-    const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
+import { AuthContext } from '../../../context/AuthContext.js';
+import { API_BASE_URL } from '../../config/api.js';
 
-    const initializeForm = () => {
-        reset();
-        setImage(null);
-        setSelectedGenre('');
-        setCustomGenre('');
-        setCurrentPage('');
-        setRating(0);
-        setIsOtherGenre(false);
-        setIsPublic(true);
-        setIsLearn(true);
-        setBookDetails(null);
-    };
+const COLORS = {
+  primary: '#F3D00F',
+  secondary: '#4E8CFF',
+  bg: '#F8F9FA',
+  card: '#FFFFFF',
+  text: '#2D3436',
+  textSecondary: '#636E72',
+  label: '#B2BEC3',
+  border: '#E0E0E0',
+  error: '#DC3545',
+};
 
-    const handleRatingChange = (newRating) => {
-        console.log('Nova Avaliação:', newRating);
-        setRating(newRating);
-    };
-    // Obtenha o ID do livro a partir dos parâmetros da rota
-    const clearStates = () => {
-        reset(); // Limpa os campos do formulário
-        setImage(null);
-        setSelectedGenre('');
-        setCustomGenre('');
-        setCurrentPage('');
-        setRating(0);
-        setIsOtherGenre(false);
-        setIsPublic(true);
-        setIsLearn(true);
-        setBookDetails(null);
-        // setGenres([]);
-    };
+const RADIUS = 12;
+const ELEV = 2;
 
-    useEffect(() => {
-        if (bookDetails?.currentPage) {
-            setCurrentPage(String(bookDetails.currentPage));
-        }
-    }, [bookDetails]);
-    // Limpeza ao sair da tela
-    useFocusEffect(
-        React.useCallback(() => {
-            const fetchDataOnFocus = async () => {
-                if (bookId) {
-                    setIsLoading(true);
-                    try {
-                        const response = await fetch(`${API_BASE_URL}/books/${bookId}/book`);
-                        const data = await response.json();
+const EditBooks = ({ route }) => {
+  const navigation = useNavigation();
+  const { bookId } = route.params || {};
+  const { userMongoId } = useContext(AuthContext);
 
-                        if (response.ok) {
-                            setBookDetails(data);
-                            setValue('title', data.title);
-                            setValue('author', data.author);
-                            setValue('publisher', data.publisher);
-                            setValue('publishedDate', data.publishedDate);
-                            setValue('description', data.description);
-                            setValue('genre', data.genre);
-                            setValue('visibility', data.visibility);
-                            setValue('rating', data.rating);
-                            setValue('status', data.status);
-                            setValue('currentPage', data.currentPage);
-                            setImage(data.image_url);
-                            setIsImageFromAPI(!!data.image_url);
-                            setSelectedGenre(data.genre);
+  const { control, handleSubmit, setValue, reset } = useForm();
+  const [isPublic, setIsPublic] = useState(true);
+  const [isLearn, setIsLearn] = useState('não lido');
 
-                            setIsPublic(data.visibility === 'public');
-                            setIsLearn(data.status);
+  const [image, setImage] = useState(null);
+  const [isImageFromAPI, setIsImageFromAPI] = useState(false);
 
-                            // Define o rating inicial
-                            setRating(data.rating || 0);
-                        } else {
-                            Alert.alert('Erro', 'Não foi possível obter os detalhes do livro.');
-                        }
-                    } catch (error) {
-                        console.error('Erro ao buscar detalhes do livro:', error);
-                        Alert.alert('Erro', 'Erro ao buscar detalhes do livro.');
-                    } finally {
-                        setIsLoading(false);
-                    }
-                }
-            };
+  const [bookDetails, setBookDetails] = useState(null);
+  const [genres, setGenres] = useState([]);
+  const [selectedGenre, setSelectedGenre] = useState('');
+  const [customGenre, setCustomGenre] = useState('');
+  const [isOtherGenre, setIsOtherGenre] = useState(false);
 
-            fetchDataOnFocus();
+  const [currentPage, setCurrentPage] = useState('');
+  const [rating, setRating] = useState(0);
 
-            // Retorna uma função para limpar o estado somente se necessário
-            return () => {
-                setBookDetails(null);
-            };
-        }, [bookId])
-    );
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
-    const handleDeleteBook = async () => {
-        Alert.alert(
-            "Confirmação",
-            "Tem certeza de que deseja deletar este livro?",
-            [
-                {
-                    text: "Cancelar",
-                    style: "cancel",
-                },
-                {
-                    text: "Deletar",
-                    onPress: async () => {
-                        try {
-                            setIsLoading(true);
-    
-                            // Verifica se há uma imagem associada ao livro
-                            if (image) {
-                                const imageRef = ref(storage, decodeURIComponent(image.split('/').slice(-1)[0]));
-                                try {
-                                    await deleteObject(imageRef);
-                                    console.log("Imagem deletada com sucesso!");
-                                } catch (error) {
-                                    console.error("Erro ao deletar a imagem do Firebase:", error);
-                                }
-                            }
-    
-                            // Deleta o livro na API
-                            const response = await fetch(`${API_BASE_URL}/books/${bookId}`, {
-                                method: 'DELETE',
-                            });
-    
-                            if (response.ok) {
-                                Alert.alert("Sucesso", "Livro deletado com sucesso!");
-                                navigation.goBack(); // Volta para a tela anterior
-                            } else {
-                                Alert.alert("Erro", "Não foi possível deletar o livro.");
-                            }
-                        } catch (error) {
-                            console.error("Erro ao deletar o livro:", error);
-                            Alert.alert("Erro", "Erro ao deletar o livro.");
-                        } finally {
-                            setIsLoading(false);
-                        }
-                    },
-                },
-            ],
-            { cancelable: true }
-        );
-    };
+  const initializeForm = useCallback(() => {
+    reset();
+    setImage(null);
+    setIsImageFromAPI(false);
+    setSelectedGenre('');
+    setCustomGenre('');
+    setIsOtherGenre(false);
+    setCurrentPage('');
+    setRating(0);
+    setIsPublic(true);
+    setIsLearn('não lido');
+    setBookDetails(null);
+  }, [reset]);
 
+  const formatarData = (data) => {
+    const dia = String(data.getDate()).padStart(2, '0');
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const ano = data.getFullYear();
+    return `${dia}/${mes}/${ano}`;
+  };
 
-    const showDatePicker = () => {
-        setDatePickerVisibility(true);
-    };
+  const showDatePicker = () => setDatePickerVisibility(true);
+  const hideDatePicker = () => setDatePickerVisibility(false);
+  const handleConfirm = (date) => {
+    setValue('publishedDate', formatarData(date));
+    hideDatePicker();
+  };
 
-    const hideDatePicker = () => {
-        setDatePickerVisibility(false);
-    };
+  // ========= Fetch único (evita duplicidade) =========
+  const fetchBookDetails = useCallback(async () => {
+    if (!bookId) return initializeForm();
+    try {
+      setIsLoading(true);
+      const resp = await fetch(`${API_BASE_URL}/books/${bookId}/book`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error('Não foi possível obter os detalhes do livro');
 
-    const handleConfirm = (date) => {
-        // Formata a data para exibição no campo
-        const formattedDate = formatarData(date);
-        setValue('publishedDate', formattedDate); // Atualiza o valor no formulário
-        hideDatePicker();
-    };
+      setBookDetails(data);
 
+      setValue('title', data.title);
+      setValue('author', data.author);
+      setValue('publisher', data.publisher);
+      setValue('publishedDate', data.publishedDate);
+      setValue('description', data.description);
+      setValue('page_count', data.page_count);
+      setValue('genre', data.genre);
+      setValue('visibility', data.visibility);
+      setValue('rating', data.rating);
+      setValue('status', data.status);
+      setValue('currentPage', data.currentPage);
 
-    useEffect(() => {
-        if (bookId) {
-            const fetchBookDetails = async () => {
-                setIsLoading(true);
-                try {
-                    const response = await fetch(`${API_BASE_URL}/books/${bookId}/book`);
-                    const data = await response.json();
+      setImage(data.image_url || null);
+      setIsImageFromAPI(!!data.image_url);
+      setSelectedGenre(data.genre || '');
+      setIsPublic(data.visibility === 'public');
+      setIsLearn(data.status || 'não lido');
+      setRating(data.rating || 0);
+      setCurrentPage(String(data.currentPage || ''));
 
-                    if (response.ok) {
-                        setBookDetails(data);
-                        setValue('title', data.title);
-                        setValue('author', data.author);
-                        setValue('publisher', data.publisher);
-                        setValue('publishedDate', data.publishedDate);
-                        setValue('description', data.description);
-                        setValue('page_count', data.page_count);
-                        setValue('genre', data.genre);
-                        setValue('visibility', data.visibility);
-                        setValue('rating', data.rating);
-                        setValue('status', data.status);
-                        setValue('currentPage', data.currentPage);
-                        setImage(data.image_url);
-                        setIsImageFromAPI(!!data.image_url);
-                        setSelectedGenre(data.genre);
-                        setIsPublic(data.visibility === 'public');
-                        setIsLearn(data.status);
-                        setRating(data.rating || 0);
-                    } else {
-                        Alert.alert('Erro', 'Não foi possível obter os detalhes do livro.');
-                    }
-                } catch (error) {
-                    console.error('Erro ao buscar detalhes do livro:', error);
-                    Alert.alert('Erro', 'Erro ao buscar detalhes do livro.');
-                } finally {
-                    setIsLoading(false);
-                }
-            };
-
-            fetchBookDetails();
-            setIsLoading(false);
-        } else {
-            initializeForm();
-        }
-    }, [bookId]);
-
-    useEffect(() => {
-        const fetchGenres = async () => {
-            try {
-                const response = await fetch(`${API_BASE_URL}/books/${userMongoId}/genres`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
-                        // Filtra e ordena os gêneros recebidos
-                        const filteredGenres = data.filter((genre) => genre).sort((a, b) => a.localeCompare(b));
-                        setGenres(filteredGenres);
-                    } else {
-                        // Nenhum gênero encontrado, define lista vazia
-                        setGenres([]);
-                    }
-                } else {
-                    // Caso a resposta não seja "ok", define a lista como vazia
-                    setGenres([]);
-                    Alert.alert('Informação', 'Crie seus próprios gêneros ou seções para personalizar sua biblioteca!');
-                }
-            } catch {
-                // Em caso de erro, define a lista como vazia e mostra uma mensagem genérica
-                setGenres([]);
-                Alert.alert('Informação', 'Crie seus próprios gêneros ou seções para personalizar sua biblioteca!');
-            }
-        };
-
-        fetchGenres();
-        setIsLoading(false);
-    }, [userId]);
-
-    const handleImagePicker = async () => {
-        Alert.alert(
-            "Selecione uma opção",
-            "Você quer tirar uma foto ou escolher da galeria?",
-            [
-                {
-                    text: "Tirar Foto",
-                    onPress: async () => {
-                        const result = await ImagePicker.launchCameraAsync({
-                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                            allowsEditing: true,
-                            aspect: [3, 5],
-                            quality: 1,
-                        });
-
-                        if (!result.canceled) {
-                            setImage(result.assets[0].uri);  // Use o URI da imagem corretamente
-                            setIsImageFromAPI(false);
-                        }
-                    }
-                },
-                {
-                    text: "Escolher da Galeria",
-                    onPress: async () => {
-                        const result = await ImagePicker.launchImageLibraryAsync({
-                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                            allowsEditing: true,
-                            aspect: [3, 5],
-                            quality: 1,
-                        });
-
-                        if (!result.canceled) {
-                            setImage(result.assets[0].uri);  // Use o URI da imagem corretamente
-                            setIsImageFromAPI(false);
-                        }
-                    }
-                },
-                { text: "Cancelar", style: "cancel" }
-            ],
-            { cancelable: true }
-        );
-    };
-
-    // Verifique se o valor de rating está mudando corretamente
-    useEffect(() => {
-        console.log('Estado Atualizado:', rating); // Verifica o estado atualizado
-    }, [rating]);
-
-    const handleSaveChanges = async (data) => {
-        setIsLoading(true);
-        try {
-            let image_url = '';
-
-            if (image && !isImageFromAPI) {
-                const response = await fetch(image);
-                const blob = await response.blob();
-                const imageRef = ref(storage, `images/books/${Date.now()}`);
-                const snapshot = await uploadBytes(imageRef, blob);
-                image_url = await getDownloadURL(snapshot.ref);
-            } else if (isImageFromAPI) {
-                image_url = image;
-            }
-
-            const updatedData = {
-                title: data.title,
-                author: data.author,
-                publisher: data.publisher,
-                publishedDate: data.publishedDate,
-                description: data.description,
-                page_count: data.page_count,
-                visibility: isPublic ? 'public' : 'private',
-                image_url,
-                owner_id: userMongoId,
-                genre: isOtherGenre ? customGenre : data.genre,
-                status: isLearn,
-                rating,
-            };
-
-            if (!bookId) {
-                // Create a new book
-                const response = await fetch(`${API_BASE_URL}/books`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(updatedData),
-                });
-
-                if (response.ok) {
-                    Alert.alert('Sucesso', 'Livro criado com sucesso!');
-                } else {
-                    Alert.alert('Erro', 'Não foi possível criar o livro.');
-                }
-            } else {
-                // Update existing book
-                const response = await fetch(`${API_BASE_URL}/books/${bookId}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(updatedData),
-                });
-
-                if (response.ok) {
-                    Alert.alert('Sucesso', 'Livro atualizado com sucesso!');
-                } else {
-                    Alert.alert('Erro', 'Não foi possível atualizar o livro.');
-                }
-            }
-        } catch (error) {
-            console.error('Erro ao salvar:', error);
-            Alert.alert('Erro', 'Erro ao salvar os dados.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-
-    const formatarData = (data) => {
-        const dia = data.getDate().toString().padStart(2, '0'); // Garante que o dia tem 2 dígitos
-        const mes = (data.getMonth() + 1).toString().padStart(2, '0'); // Garante que o mês tem 2 dígitos
-        const ano = data.getFullYear();
-
-        return `${dia}/${mes}/${ano}`;
-    };
-
-    const renderRating = () => (
-        <View style={styles.ratingContainer}>
-            <Text style={styles.label}>Avaliação do Livro</Text>
-            <View style={styles.stars}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity
-                        key={star}
-                        onPress={() => setRating(star)} // Define a avaliação clicada
-                    >
-                        <Icon
-                            name={star <= rating ? "star" : "star-border"} // Ícone preenchido ou contornado
-                            size={50}
-                            defaultRating={bookDetails?.rating || 0} // Define o valor inicial
-                            rating={rating}
-                            color="#fdd835" // Cor amarela
-                        />
-                    </TouchableOpacity>
-                ))}
-            </View>
-        </View>
-    );
-
-    if (isLoading) {
-        return <ActivityIndicator size="large" color="#6200ea" />;
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Erro', e.message || 'Erro ao buscar detalhes do livro.');
+    } finally {
+      setIsLoading(false);
     }
+  }, [bookId, initializeForm, setValue]);
 
-    // if (!bookDetails) {
-    //     return <Text>Carregando...</Text>;
-    // }
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchBookDetails();
+      return () => {}; // cleanup opcional
+    }, [fetchBookDetails])
+  );
 
-    return (
-        <SafeAreaView style={styles.container}>
-            <ScrollView contentContainerStyle={styles.scrollContainer}>
-                <Text style={styles.header}>Editar Livro</Text>
+  // Gêneros do usuário
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/books/${userMongoId}/genres`);
+        if (!response.ok) {
+          if (isMounted) setGenres([]);
+          return;
+        }
+        const data = await response.json();
+        const list = (Array.isArray(data) ? data : []).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        if (isMounted) setGenres(list);
+      } catch {
+        if (isMounted) setGenres([]);
+      }
+    })();
+    return () => { isMounted = false; };
+  }, [userMongoId]);
 
-                <View style={styles.imageContainer}>
-                    <TouchableOpacity onPress={handleImagePicker}>
-                        {image ? (
-                            <Image source={{ uri: image }} style={styles.bookImage} />
-                        ) : (
-                            <View style={styles.placeholder}>
-                                <Text style={styles.placeholderText}>Imagem não disponível</Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleImagePicker} style={styles.imagePicker}>
-                        <Icon name="camera" size={24} color="#333" />
-                        <Text style={styles.imageText}> Nova Capa</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Título:</Text>
-                    <Controller
-                        control={control}
-                        name="title"
-                        render={({ field: { onChange, value } }) => (
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Digite o título do livro"
-                                value={value}
-                                onChangeText={onChange}
-                            />
-                        )}
-                    />
-                    <Text style={styles.label}>Autor:</Text>
-                    <Controller
-                        control={control}
-                        name="author"
-                        render={({ field: { onChange, value } }) => (
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Digite o autor do livro"
-                                value={value}
-                                onChangeText={onChange}
-                            />
-                        )}
-                    />
-                    <Text style={styles.label}>Editora:</Text>
-                    <Controller
-                        control={control}
-                        name="publisher"
-                        render={({ field: { onChange, value } }) => (
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Digite a editora"
-                                value={value}
-                                onChangeText={onChange}
-                            />
-                        )}
-                    />
-                    <Text style={styles.label}>Número de Páginas:</Text>
-                    <Controller
-                        control={control}
-                        name="page_count"
-                        render={({ field: { onChange, value } }) => {
-                            console.log("Valor de page_count:", typeof value); // Verifique o valor
-                            return (
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Quantidade de Páginas"
-                                    value={value ? String(value) : ''} // Garanta que o valor esteja no formato correto
-                                    onChangeText={onChange}
-                                />
-                            );
-                        }}
-                    />
-                    <Text style={styles.label}>Gênero:</Text>
-                    <Controller
-                        control={control}
-                        name="genre"
-                        render={({ field: { onChange, value } }) => (
-                            <View>
-                                <Picker
-                                    selectedValue={selectedGenre}
-                                    style={styles.picker}
-                                    onValueChange={(itemValue) => {
-                                        setSelectedGenre(itemValue);
-                                        setIsOtherGenre(itemValue === 'Outro'); // Verifica se "Outro" foi selecionado
-                                        if (itemValue !== 'Outro') {
-                                            setCustomGenre(''); // Limpa o valor de customGenre
-                                        }
-                                        onChange(itemValue); // Atualiza o formulário
-                                    }}
-                                >
-                                    {genres.map((genre) => (
-                                        <Picker.Item key={genre} label={genre} value={genre} />
-                                    ))}
-                                    <Picker.Item label="Outro" value="Outro" />
-                                </Picker>
-
-                                {isOtherGenre && (
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="Especifique o gênero"
-                                        value={customGenre}
-                                        onChangeText={setCustomGenre}
-                                    />
-                                )}
-                            </View>
-                        )}
-                    />
-                    <Text style={styles.label}>Data de publicação:</Text>
-                    <Controller
-                        control={control}
-                        name="publishedDate"
-                        render={({ field: { value } }) => (
-                            <TouchableOpacity onPress={showDatePicker}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Data de publicação"
-                                    value={value}
-                                    editable={false} // Desativa a edição direta no campo
-                                />
-                            </TouchableOpacity>
-                        )}
-                    />
-
-                    <DateTimePickerModal
-                        isVisible={isDatePickerVisible}
-                        mode="date"
-                        onConfirm={handleConfirm}
-                        onCancel={hideDatePicker}
-                    />
-                    <Text style={styles.label}>Descrição:</Text>
-                    <Controller
-                        control={control}
-                        name="description"
-                        render={({ field: { onChange, value } }) => (
-                            <TextInput
-                                style={styles.textArea}
-                                placeholder="Descrição"
-                                value={value}
-                                onChangeText={onChange}
-                                multiline
-                                numberOfLines={8}
-                            />
-                        )}
-                    />
-
-                    {/* <Text style={styles.label}>Opções:</Text> */}
-                    <View style={styles.switchContainer}>
-                        <Text style={styles.label}>Deixar Visível?</Text>
-                        <View style={styles.radioGroup}>
-                            <RadioButton.Group
-                                onValueChange={newValue => setIsPublic(newValue === 'public')}
-                                value={isPublic ? 'public' : 'private'}
-                            >
-                                <View style={styles.radioItem}>
-                                    <RadioButton value="public" />
-                                    <Text style={styles.radioLabel}>Público</Text>
-                                </View>
-                                <View style={styles.radioItem}>
-                                    <RadioButton value="private" />
-                                    <Text style={styles.radioLabel}>Privado</Text>
-                                </View>
-                            </RadioButton.Group>
-                        </View>
-
-                        <View style={styles.switchContainer}>
-                            <Text style={styles.label}>Já leu este livro?</Text>
-                            <View style={styles.radioGroup}>
-                                <RadioButton.Group
-                                    onValueChange={(newValue) => {
-                                        setIsLearn(newValue); // Salva o valor real selecionado no estado
-                                        if (newValue === 'não lido') {
-                                            setCurrentPage(''); // Reseta a página se a opção for "Não lido"
-                                        }
-                                    }}
-                                    value={isLearn} // O valor do botão atualmente ativo
-                                >
-                                    <View style={styles.radioItem}>
-                                        <RadioButton value="lido" />
-                                        <Text style={styles.radioLabel}>Lido</Text>
-                                    </View>
-                                    <View style={styles.radioItem}>
-                                        <RadioButton value="lendo" />
-                                        <Text style={styles.radioLabel}>Lendo</Text>
-                                    </View>
-                                    <View style={styles.radioItem}>
-                                        <RadioButton value="não lido" />
-                                        <Text style={styles.radioLabel}>Não lido</Text>
-                                    </View>
-                                </RadioButton.Group>
-                            </View>
-
-                            {isLearn === 'lendo' && (
-                                <View style={styles.pageInputContainer}>
-                                    <TextInput
-
-                                        style={styles.input}
-                                        placeholder="Digite a página atual"
-                                        keyboardType="numeric"
-                                        value={currentPage}
-                                        onChangeText={(text) => {
-                                            setCurrentPage(text);
-                                            console.log('Página Atual:', text);
-                                        }}
-                                    />
-                                </View>
-                            )}
-                        </View>
-                        {/* Avaliação */}
-                        <View>
-                            {renderRating()}
-                        </View>
-                    </View>
-                </View>
-
-                <View style={styles.buttonContainer}>
-                    <Button
-                        title="Salvar Alterações"
-                        onPress={handleSubmit(handleSaveChanges)}
-                        color="#6200ea"
-                    />
-                    {bookId && (
-                        <TouchableOpacity
-                            style={[styles.deleteButton, { backgroundColor: '#ff5252' }]}
-                            onPress={handleDeleteBook}
-                        >
-                            <Text style={styles.deleteButtonText}>Deletar Livro</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-            </ScrollView>
-            {isLoading && <ActivityIndicator size="large" color="#6200ea" />}
-        </SafeAreaView>
-
+  // ======= Image Picker (opcional) =======
+  const handleImagePicker = async () => {
+    Alert.alert(
+      'Selecione uma opção',
+      'Você quer tirar uma foto ou escolher da galeria?',
+      [
+        {
+          text: 'Tirar Foto',
+          onPress: async () => {
+            // if (!ImagePicker) return Alert.alert('Câmera indisponível');
+            // const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [3, 5], quality: 1 });
+            // if (!result.canceled) { setImage(result.assets[0].uri); setIsImageFromAPI(false); }
+            Alert.alert('Dica', 'Ative o ImagePicker para usar a câmera.');
+          },
+        },
+        {
+          text: 'Escolher da Galeria',
+          onPress: async () => {
+            // if (!ImagePicker) return Alert.alert('Galeria indisponível');
+            // const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [3, 5], quality: 1 });
+            // if (!result.canceled) { setImage(result.assets[0].uri); setIsImageFromAPI(false); }
+            Alert.alert('Dica', 'Ative o ImagePicker para usar a galeria.');
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ],
+      { cancelable: true }
     );
+  };
+
+  // ======= Save / Delete =======
+  const handleSaveChanges = useCallback(async (data) => {
+    setIsLoading(true);
+    try {
+      let image_url = '';
+
+      if (image && !isImageFromAPI) {
+        const response = await fetch(image);
+        const blob = await response.blob();
+        const imageRef = ref(storage, `images/books/${Date.now()}`);
+        const snapshot = await uploadBytes(imageRef, blob);
+        image_url = await getDownloadURL(snapshot.ref);
+      } else if (isImageFromAPI) {
+        image_url = image;
+      }
+
+      const payload = {
+        title: data.title,
+        author: data.author,
+        publisher: data.publisher,
+        publishedDate: data.publishedDate,
+        description: data.description,
+        page_count: data.page_count,
+        visibility: isPublic ? 'public' : 'private',
+        image_url,
+        owner_id: userMongoId,
+        genre: isOtherGenre ? customGenre : (data.genre || selectedGenre),
+        status: isLearn, // 'lido' | 'lendo' | 'não lido'
+        currentPage: isLearn === 'lendo' ? currentPage : '',
+        rating,
+      };
+
+      const url = bookId ? `${API_BASE_URL}/books/${bookId}` : `${API_BASE_URL}/books`;
+      const method = bookId ? 'PUT' : 'POST';
+
+      const resp = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) throw new Error(bookId ? 'Não foi possível atualizar o livro.' : 'Não foi possível criar o livro.');
+
+      Alert.alert('Sucesso', bookId ? 'Livro atualizado com sucesso!' : 'Livro criado com sucesso!');
+      navigation.goBack();
+    } catch (e) {
+      console.error('Erro ao salvar:', e);
+      Alert.alert('Erro', e.message || 'Erro ao salvar os dados.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [bookId, image, isImageFromAPI, isPublic, isOtherGenre, customGenre, selectedGenre, isLearn, currentPage, rating, userMongoId, navigation]);
+
+  const handleDeleteBook = useCallback(() => {
+    if (!bookId) return;
+    Alert.alert(
+      'Confirmação',
+      'Tem certeza de que deseja deletar este livro?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Deletar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              if (image) {
+                try {
+                  const imageRef = ref(storage, decodeURIComponent(image.split('/').slice(-1)[0]));
+                  await deleteObject(imageRef);
+                } catch (err) {
+                  console.warn('Falha ao deletar imagem do Firebase:', err?.message);
+                }
+              }
+              const resp = await fetch(`${API_BASE_URL}/books/${bookId}`, { method: 'DELETE' });
+              if (!resp.ok) throw new Error('Não foi possível deletar o livro.');
+              Alert.alert('Sucesso', 'Livro deletado com sucesso!');
+              navigation.goBack();
+            } catch (e) {
+              Alert.alert('Erro', e.message || 'Erro ao deletar o livro.');
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [bookId, image, navigation]);
+
+  // ======= UI =======
+  const renderRating = () => (
+    <View style={styles.ratingContainer}>
+      <Text style={styles.label}>Avaliação do Livro</Text>
+      <View style={styles.stars}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <TouchableOpacity key={star} onPress={() => setRating(star)}>
+            <Icon
+              name={star <= rating ? 'star' : 'star-border'}
+              size={28}
+              color="#fdd835"
+              style={{ marginRight: 4 }}
+            />
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.root}>
+      {/* Header */}
+      <View style={styles.hero}>
+        <View style={styles.heroRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Icon name="arrow-back" size={26} color={COLORS.text} />
+          </TouchableOpacity>
+          <Text style={styles.heroTitle}>{bookId ? 'Editar Livro' : 'Novo Livro'}</Text>
+          <TouchableOpacity onPress={handleSubmit(handleSaveChanges)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Icon name="save" size={24} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {/* Capa */}
+          <View style={styles.card}>
+            <View style={{ alignItems: 'center' }}>
+              {image ? (
+                <Image source={{ uri: image }} style={styles.bookImage} />
+              ) : (
+                <View style={styles.placeholder}>
+                  <Text style={styles.placeholderText}>Imagem não disponível</Text>
+                </View>
+              )}
+
+              <TouchableOpacity onPress={handleImagePicker} style={styles.imagePicker}>
+                <Icon name="photo-camera" size={20} color={COLORS.text} />
+                <Text style={styles.imageText}> Nova Capa</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Form */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Informações</Text>
+
+            <Text style={styles.label}>Título</Text>
+            <Controller
+              control={control}
+              name="title"
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Digite o título do livro"
+                  value={value}
+                  onChangeText={onChange}
+                />
+              )}
+            />
+
+            <Text style={styles.label}>Autor</Text>
+            <Controller
+              control={control}
+              name="author"
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Digite o autor do livro"
+                  value={value}
+                  onChangeText={onChange}
+                />
+              )}
+            />
+
+            <Text style={styles.label}>Editora</Text>
+            <Controller
+              control={control}
+              name="publisher"
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Digite a editora"
+                  value={value}
+                  onChangeText={onChange}
+                />
+              )}
+            />
+
+            <Text style={styles.label}>Número de páginas</Text>
+            <Controller
+              control={control}
+              name="page_count"
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Quantidade de páginas"
+                  keyboardType="numeric"
+                  value={value ? String(value) : ''}
+                  onChangeText={onChange}
+                />
+              )}
+            />
+
+            <Text style={styles.label}>Gênero</Text>
+            <Controller
+              control={control}
+              name="genre"
+              render={({ field: { onChange } }) => (
+                <View>
+                  <View style={styles.pickerWrap}>
+                    <Picker
+                      selectedValue={selectedGenre}
+                      onValueChange={(v) => {
+                        setSelectedGenre(v);
+                        setIsOtherGenre(v === 'Outro');
+                        if (v !== 'Outro') setCustomGenre('');
+                        onChange(v);
+                      }}
+                      dropdownIconColor={COLORS.textSecondary}
+                    >
+                      {genres.map((g) => (
+                        <Picker.Item key={g} label={g} value={g} />
+                      ))}
+                      <Picker.Item label="Outro" value="Outro" />
+                    </Picker>
+                  </View>
+
+                  {isOtherGenre && (
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Especifique o gênero"
+                      value={customGenre}
+                      onChangeText={setCustomGenre}
+                    />
+                  )}
+                </View>
+              )}
+            />
+
+            <Text style={styles.label}>Data de publicação</Text>
+            <Controller
+              control={control}
+              name="publishedDate"
+              render={({ field: { value } }) => (
+                <TouchableOpacity onPress={showDatePicker} activeOpacity={0.8}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Data de publicação"
+                    value={value}
+                    editable={false}
+                  />
+                </TouchableOpacity>
+              )}
+            />
+            <DateTimePickerModal isVisible={isDatePickerVisible} mode="date" onConfirm={handleConfirm} onCancel={hideDatePicker} />
+
+            <Text style={styles.label}>Descrição</Text>
+            <Controller
+              control={control}
+              name="description"
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  style={styles.textArea}
+                  placeholder="Descrição"
+                  value={value}
+                  onChangeText={onChange}
+                  multiline
+                  numberOfLines={8}
+                />
+              )}
+            />
+          </View>
+
+          {/* Opções */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Opções</Text>
+
+            <Text style={styles.label}>Visibilidade</Text>
+            <View style={styles.radioGroup}>
+              <View style={styles.radioItem}>
+                <RadioButton
+                  value="public"
+                  status={isPublic ? 'checked' : 'unchecked'}
+                  onPress={() => setIsPublic(true)}
+                />
+                <Text style={styles.radioLabel}>Público</Text>
+              </View>
+              <View style={styles.radioItem}>
+                <RadioButton
+                  value="private"
+                  status={!isPublic ? 'checked' : 'unchecked'}
+                  onPress={() => setIsPublic(false)}
+                />
+                <Text style={styles.radioLabel}>Privado</Text>
+              </View>
+            </View>
+
+            <Text style={styles.label}>Status de leitura</Text>
+            <View style={styles.radioGroup}>
+              {['lido', 'lendo', 'não lido'].map((opt) => (
+                <View key={opt} style={styles.radioItem}>
+                  <RadioButton
+                    value={opt}
+                    status={isLearn === opt ? 'checked' : 'unchecked'}
+                    onPress={() => setIsLearn(opt)}
+                  />
+                  <Text style={styles.radioLabel}>{opt[0].toUpperCase() + opt.slice(1)}</Text>
+                </View>
+              ))}
+            </View>
+
+            {isLearn === 'lendo' && (
+              <View style={styles.pageInputContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Página atual"
+                  keyboardType="numeric"
+                  value={currentPage}
+                  onChangeText={setCurrentPage}
+                />
+              </View>
+            )}
+
+            {renderRating()}
+          </View>
+
+          {/* Ações */}
+          <View style={styles.actionsRow}>
+            <TouchableOpacity style={[styles.btn, styles.primaryBtn]} onPress={handleSubmit(handleSaveChanges)} activeOpacity={0.9}>
+              <Text style={styles.btnText}>Salvar alterações</Text>
+            </TouchableOpacity>
+
+            {!!bookId && (
+              <TouchableOpacity style={[styles.btn, styles.dangerBtn]} onPress={handleDeleteBook} activeOpacity={0.9}>
+                <Text style={styles.btnTextLight}>Deletar livro</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={{ height: 24 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={COLORS.secondary} />
+        </View>
+      )}
+    </SafeAreaView>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 20,
-    },
-    scrollContainer: {
-        paddingBottom: 20,
-    },
-    header: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        marginBottom: 20,
-    },
-    imageContainer: {
-        flexDirection: 'column',
-        alignItems: 'center',
-    },
-    bookImage: {
-        width: 120,
-        height: 180,
-        marginBottom: 10,
-    },
-    placeholder: {
-        width: 100,
-        height: 100,
-        backgroundColor: '#f0f0f0',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    placeholderText: {
-        color: '#888',
-    },
-    imagePicker: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#f3d00f', // Cor do botão
-        paddingVertical: 10,
-        paddingHorizontal: 15,
-        borderRadius: 5,
-    },
-    imageText: {
-        color: '#333', // Cor do texto
-        marginLeft: 5, // Espaçamento entre o ícone e o texto
-    },
-    inputContainer: {
-        marginBottom: 20,
+  root: { flex: 1, backgroundColor: COLORS.bg },
 
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    input: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 5,
-        padding: 10,
-        marginBottom: 10,
-        backgroundColor: '#fff',
-    },
-    textArea: {
-        height: 100,
-        borderColor: '#ccc',
-        borderWidth: 1,
-        borderRadius: 5,
-        paddingHorizontal: 10,
-        backgroundColor: '#fff',
-        textAlignVertical: 'top',
-    },
-    picker: {
-        height: 50,
-        width: '100%',
-        borderColor: '#ccc',
-        borderWidth: 1,
-        borderRadius: 5,
-        marginBottom: 10,
-    },
-    switchContainer: {
-        marginVertical: 20,
-        paddingHorizontal: 16,
-    },
-    pageInputContainer: {
-        marginTop: 10,
-    },
+  // HERO
+  hero: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F6E68B',
+  },
+  heroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
 
-    label: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 8,
-    },
-    radioGroup: {
-        flexDirection: 'row',
-        justifyContent: 'flex-start', // Para garantir que os botões fiquem alinhados à esquerda
-        marginVertical: 10,
-    },
-    radioItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginRight: 20, // Espaço entre os itens de rádio
-    },
-    radioLabel: {
-        fontSize: 14,
-        marginLeft: 8,
-    },
-    ratingText: {
-        fontSize: 16,
-        marginTop: 20,
-        fontStyle: 'italic',
-    },
-    button: {
-        backgroundColor: '#f3d00f', // Cor de fundo do botão
-        paddingVertical: 16, // Espaçamento vertical
-        paddingHorizontal: 20, // Espaçamento horizontal
-        borderRadius: 6, // Cantos arredondados
-        alignItems: 'center', // Centraliza o texto
-        marginTop: 20, // Margem superior
-    },
-    buttonText: {
-        color: '#333', // Cor do texto
-        fontSize: 16, // Tamano da fonte
-        fontWeight: 'bold', // Negrito
-        textAlign: 'center', // Centraliza o texto
-    },
-    ratingContainer: {
-        marginVertical: 20,
-    },
-    stars: {
-        flexDirection: "row",
-    },
-    deleteButton: {
-        marginTop: 20,
-        padding: 15,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    deleteButtonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
+  scroll: { padding: 16 },
+
+  // Cards
+  card: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    marginBottom: 12,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+
+  // Imagem
+  bookImage: {
+    width: 140,
+    height: 210,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 10,
+  },
+  placeholder: {
+    width: 140, height: 210,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 10,
+  },
+  placeholderText: { color: COLORS.textSecondary },
+  imagePicker: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    borderWidth: 1, borderColor: '#E9CC16',
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  imageText: { color: COLORS.text, fontWeight: '800' },
+
+  // Form
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  label: { fontSize: 12, fontWeight: '800', color: COLORS.textSecondary, marginTop: 8, marginBottom: 6 },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    color: COLORS.text,
+  },
+  textArea: {
+    height: 120,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    color: COLORS.text,
+    textAlignVertical: 'top',
+  },
+  pickerWrap: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+
+  // Radios
+  radioGroup: { flexDirection: 'row', alignItems: 'center', marginTop: 6, flexWrap: 'wrap' },
+  radioItem: { flexDirection: 'row', alignItems: 'center', marginRight: 16, marginBottom: 4 },
+  radioLabel: { fontSize: 13, color: COLORS.text },
+
+  // Rating
+  ratingContainer: { marginTop: 14 },
+  stars: { flexDirection: 'row', marginTop: 6 },
+
+  // Página atual
+  pageInputContainer: { marginTop: 8 },
+
+  // Ações
+  actionsRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  btn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  primaryBtn: { backgroundColor: COLORS.secondary, borderWidth: 1, borderColor: '#3B79E6' },
+  dangerBtn: { backgroundColor: COLORS.error, borderWidth: 1, borderColor: '#B51F2D' },
+  btnText: { color: '#fff', fontWeight: '800' },
+  btnTextLight: { color: '#fff', fontWeight: '800' },
+
+  // Loading Overlay
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 export default EditBooks;

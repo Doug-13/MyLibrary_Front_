@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "920349589094",
+    "project_id": "mylibrary-90151",
+    "storage_bucket": "mylibrary-90151.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:920349589094:android:4ddfca66b9a3fc3efa77a7",
+        "android_client_info": {
+          "package_name": "com.doug.MyLibrary"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "920349589094-9rr0nq1gor1uc3nm231k0fkqrou4bfbb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.doug.MyLibrary",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "920349589094-v6t2gasjo44s877lo0mp1tm9krbldok5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC6lRACq7uGUMc6afkJe4N1CkRvjt0q7PM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "920349589094-ksa6lgt0jma87nk9k7a6qg4v4mhk577q.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "920349589094-hqqlvrvcmhi7llcb8q5lcco84f2s27gm.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.bibliotech.ios"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

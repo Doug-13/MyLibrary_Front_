@@ -1,603 +1,541 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
-import { SafeAreaView, Text, TextInput, StyleSheet, Button, Alert, Platform, StatusBar, View, TouchableOpacity, Modal, Image, ScrollView, BackHandler } from 'react-native';
-// import { Camera, useCameraDevices } from 'react-native-vision-camera';
+import {
+  SafeAreaView,
+  Text,
+  TextInput,
+  StyleSheet,
+  Alert,
+  View,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  BackHandler,
+} from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { Picker } from '@react-native-picker/picker';
 import { RadioButton } from 'react-native-paper';
-import { AirbnbRating } from 'react-native-ratings';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { AuthContext } from '../../../context/AuthContext.js';
-// import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native'; // Importa o hook useRoute
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
-
 import { API_BASE_URL } from '../../config/api.js';
 
+// ===== Design System (MyLibrary App) =====
+const COLORS = {
+  primary: '#F3D00F',
+  secondary: '#4E8CFF',
+  bg: '#F8F9FA',
+  card: '#FFFFFF',
+  text: '#2D3436',
+  textSecondary: '#636E72',
+  label: '#B2BEC3',
+  border: '#E0E0E0',
+  error: '#DC3545',
+  success: '#28A745',
+};
+const RADIUS = 12;
+const ELEV = 2;
+
 const AddBooks = () => {
-    const navigation = useNavigation();
-    const route = useRoute(); // Acessa os parâmetros da rota
-    const [isbn, setIsbn] = useState('');
-    const [bookDetails, setBookDetails] = useState(null);
-    // const [showCamera, setShowCamera] = useState(false);
-    // const [hasPermission, setHasPermission] = useState(null);
-    const { control, handleSubmit, getValues, setValue } = useForm({
-        defaultValues: {
-            genre: '', // Valor padrão
-        },
-    })
-    const [isPublic, setIsPublic] = useState(false); // Privado
-    const [notifyFriends, setNotifyFriends] = useState(false); // Não
-    const [isLearn, setIsLearn] = useState('Não lido');
-    const { book } = route.params || {}; // Obtém o livro passado como parâmetro
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { book } = route.params || {};
+  const { userMongoId, userId } = useContext(AuthContext);
 
-    const { nome_completo, userMongoId, userId, userProfilePicture } = useContext(AuthContext);
-    const [selectedGenre, setSelectedGenre] = useState('');
-    const [genres, setGenres] = useState([]);
+  const { control, handleSubmit, getValues, setValue, reset } = useForm({ defaultValues: { genre: '' } });
 
-    const [customGenre, setCustomGenre] = useState('');
-    const [rating, setRating] = useState(0);
-    const [currentPage, setCurrentPage] = useState('');
-    const [page_count, setPageCount] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [isOtherGenre, setIsOtherGenre] = useState(false); // Estado para saber se o usuário escolheu "Outro"
-    const [image, setImage] = useState('');
+  const [bookDetails, setBookDetails] = useState(null);
+  const [genres, setGenres] = useState([]);
+  const [selectedGenre, setSelectedGenre] = useState('');
+  const [customGenre, setCustomGenre] = useState('');
+  const [isOtherGenre, setIsOtherGenre] = useState(false);
 
+  const [isPublic, setIsPublic] = useState(false); // privado por padrão
+  const [notifyFriends, setNotifyFriends] = useState(false);
+  const [statusUi, setStatusUi] = useState('Não lido'); // 'Lido' | 'Lendo' | 'Não lido' (UI)
+  const [rating, setRating] = useState(0);
+  const [currentPage, setCurrentPage] = useState('');
+  const [image, setImage] = useState('');
+  const [isImageFromAPI, setIsImageFromAPI] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-    useEffect(() => {
-        const unsubscribe = navigation.addListener('blur', () => {
-            // Limpar informações quando sair da tela
-            setIsbn('');
-            setBookDetails(null);
-            setImage('');
-            setValue('title', '');
-            setValue('author', '');
-            setValue('isbn', '');
-            setValue('publisher', '');
-            setValue('publishedDate', '');
-            setValue('description', '');
-            setValue('genre', '');
-            setValue('page_count', '');
-            setIsLearn('Não lido');
-            setIsPublic(false);
-            setNotifyFriends(false);
-            setRating(0);
-            setCurrentPage('');
-        });
+  // Limpa ao sair
+  useEffect(() => {
+    const unsub = navigation.addListener('blur', () => {
+      reset();
+      setBookDetails(null);
+      setImage('');
+      setSelectedGenre('');
+      setCustomGenre('');
+      setIsOtherGenre(false);
+      setIsPublic(false);
+      setNotifyFriends(false);
+      setStatusUi('Não lido');
+      setRating(0);
+      setCurrentPage('');
+    });
+    return unsub;
+  }, [navigation, reset]);
 
-        return unsubscribe;
-    }, [navigation]);
+  // Confirmação ao voltar (Android hardware)
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        Alert.alert('Voltar', 'Deseja salvar as alterações antes de sair?', [
+          { text: 'Não', style: 'cancel', onPress: () => navigation.goBack() },
+          { text: 'Sim', onPress: handleSubmit(handleSaveChanges) },
+        ]);
+        return true;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [navigation, handleSubmit]) // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
-    useFocusEffect(
-        useCallback(() => {
-            const onBackPress = () => {
-                Alert.alert(
-                    "Voltar",
-                    "Deseja salvar as alterações antes de sair?",
-                    [
-                        {
-                            text: "Não",
-                            onPress: () => navigation.goBack(), // Voltar sem salvar
-                            style: "cancel",
-                        },
-                        {
-                            text: "Sim",
-                            onPress: handleSaveChanges, // Salvar e voltar
-                        },
-                    ],
-                    { cancelable: true }
-                );
-                return true; // Impede o comportamento padrão de voltar
-            };
+  // Recebe o livro vindo do Google Books
+  useEffect(() => {
+    if (book?.volumeInfo) {
+      setBookDetails(book);
+      const thumb = book.volumeInfo.imageLinks?.thumbnail || '';
+      setImage(thumb);
+      setIsImageFromAPI(!!thumb);
+    }
+  }, [book]);
 
-            const backHandler = BackHandler.addEventListener("hardwareBackPress", onBackPress);
-
-            return () => {
-                backHandler.remove(); // Correto com a nova API
-            };
-        }, [navigation])
-    );
-
-    // useEffect(() => {
-    //     (async () => {
-    //         const cameraStatus = await Camera.requestCameraPermissionsAsync();
-    //         setHasPermission(cameraStatus.status === 'granted');
-    //     })();
-    // }, []);
-
-    const handleRatingChange = (newRating) => {
-        console.log('Nova Avaliação:', newRating);
-        setRating(newRating);
-    };
-
-    useEffect(() => {
-        if (book) {
-            console.log('Livro recebido:', book);
-            setBookDetails(book); // Atualiza o estado com os dados do livro
+  // Gêneros (prateleiras) do usuário
+  useEffect(() => {
+    const fetchGenres = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/books/${userMongoId}/genres`);
+        if (res.ok) {
+          const data = await res.json();
+          const filtered = Array.isArray(data) ? data.filter(Boolean).sort((a, b) => a.localeCompare(b)) : [];
+          setGenres(filtered);
+        } else {
+          setGenres([]);
+          Alert.alert('Informação', 'Crie suas prateleiras para organizar seus livros.');
         }
-    }, [book]);
+      } catch {
+        setGenres([]);
+        Alert.alert('Informação', 'Crie suas prateleiras para organizar seus livros.');
+      }
+    };
+    if (userId) fetchGenres();
+  }, [userId, userMongoId]);
 
-    const handleSaveChanges = async () => {
-        setIsLoading(true);
+  // Helpers
+  const normStatusForApi = (ui) => {
+    if (ui === 'Lido') return 'Lido';
+    if (ui === 'Lendo') return 'lendo';
+    return 'não lido';
+  };
+
+  const numberOrZero = (val) => {
+    const n = parseInt(String(val || '').replace(/[^\d]/g, ''), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const title = getValues('title') || bookDetails?.volumeInfo?.title || '';
+  const authors = getValues('author') || (bookDetails?.volumeInfo?.authors || []).join(', ');
+  const publisher = getValues('publisher') || bookDetails?.volumeInfo?.publisher || '';
+  const publishedDate = getValues('publishedDate') || bookDetails?.volumeInfo?.publishedDate || '';
+  const description = getValues('description') || bookDetails?.volumeInfo?.description || '';
+  const pageCount = getValues('page_count') || bookDetails?.volumeInfo?.pageCount || 0;
+  const categories = bookDetails?.volumeInfo?.categories || [];
+
+  const handleSaveChanges = async () => {
+    try {
+      setIsLoading(true);
+
+      const genreToSave = selectedGenre === 'Outro' ? (customGenre || 'Outros') : (selectedGenre || 'Outros');
+      const image_url = image || '';
+
+      const payload = {
+        title: title || 'Título Desconhecido',
+        author: authors || 'Autor Desconhecido',
+        isbn:
+          bookDetails?.volumeInfo?.industryIdentifiers?.[0]?.identifier ||
+          getValues('isbn') ||
+          'N/A',
+        publisher: publisher || 'Desconhecido',
+        page_count: numberOrZero(pageCount),
+        publishedDate: publishedDate || 'N/A',
+        description: description || 'Sem descrição',
+        image_url,
+        visibility: isPublic ? 'public' : 'private',
+        status: normStatusForApi(statusUi),
+        rating: numberOrZero(rating),
+        currentPage: statusUi === 'Lendo' ? numberOrZero(currentPage) : 0,
+        owner_id: userMongoId,
+        genre: genreToSave,
+      };
+
+      const res = await fetch(`${API_BASE_URL}/books`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error('Erro ao cadastrar o livro');
+
+      const created = await res.json();
+
+      // Notificação opcional
+      if (notifyFriends && created?._id) {
         try {
-            let image_url = '';
-            // Caso a imagem seja de uma URL da API, usamos diretamente
-            if (image && (isImageFromAPI || image.startsWith("http"))) {
-                image_url = image;
-            }
-            // Caso contrário, fazemos o upload da imagem para o Firebase Storage
-            else if (image) {
-                const response = await fetch(image);
-                const blob = await response.blob();
-                const imageRef = ref(storage, `images/books/${Date.now()}`);
-                const snapshot = await uploadBytes(imageRef, blob);
-                image_url = await getDownloadURL(snapshot.ref);
-            }
-
-            // Dados a serem enviados
-            const genreToSave = selectedGenre === 'Outro' ? customGenre : selectedGenre;
-
-            const projectData = {
-                title: getValues('title') || bookDetails?.volumeInfo?.title || 'Título Desconhecido',
-                author: getValues('author') || bookDetails?.volumeInfo?.authors?.join(', ') || 'Autor Desconhecido',
-                isbn: isbn || bookDetails?.volumeInfo?.industryIdentifiers?.[0]?.identifier || 'N/A',
-                publisher: getValues('publisher') || bookDetails?.volumeInfo?.publisher || 'Desconhecido',
-                page_count: getValues('page_count') || bookDetails?.volumeInfo?.pageCount || '0',
-                publishedDate: getValues('publishedDate') || bookDetails?.volumeInfo?.publishedDate || 'N/A',
-                description: getValues('description') || bookDetails?.volumeInfo?.description || 'Sem descrição',
-                image_url: image_url || bookDetails?.volumeInfo?.imageLinks?.thumbnail || '',
-                visibility: isPublic ? 'public' : 'private',
-                isLearned: isLearn,
-                owner_id: userMongoId,
-                genre: genreToSave || 'Outros',
-                rating: rating || bookDetails?.volumeInfo?.averageRating || 3,
-                currentPage: currentPage || '0',
-
-            };
-
-            console.log(projectData)
-            // Enviar dados ao servidor
-            const response = await fetch(`${API_BASE_URL}/books`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(projectData),
-            });
-
-
-            if (response.ok) {
-                const responseData = await response.json(); // Processa a resposta como JSON
-
-                console.log(responseData); // Verifique a estrutura da resposta
-
-                if (responseData._id) {
-                    if (notifyFriends) {
-                        // Montando os dados da notificação
-                        const messageData = {
-                            messageType: 'bookAdded',
-                            recipient_id: "allFriends", // Substituir pelo ID do amigo
-                            book_id: responseData._id, // ID do livro cadastrado
-                            user_id: userMongoId,
-                            created_at: new Date().toISOString(),
-                        };
-
-                        // Log dos dados da notificação antes do envio
-                        console.log('Dados da notificação:', messageData);
-
-                        try {
-                            const notificationResponse = await axios.post(
-                                `${API_BASE_URL}/notifications`,
-                                messageData
-                            );
-
-                            // Log após a resposta da API de notificação
-                            console.log('Resposta da API de notificação:', notificationResponse.data);
-
-                            if (notificationResponse.status === 201) {
-                                // alert('Informamos seus amigos que você adicionou um novo livro!');
-                            }
-                        } catch (error) {
-                            console.error('Erro ao enviar notificação:', error.response?.data || error.message);
-                            alert('Erro ao notificar amigos.');
-                        }
-                    }
-
-                    Alert.alert('Sucesso', 'Livro cadastrado com sucesso!');
-
-                    // Limpar os campos do formulário e estados
-                    setIsbn('');
-                    setBookDetails(null);
-                    setImage(null);
-                    setValue('title', '');
-                    setValue('author', '');
-                    setValue('isbn', '');
-                    setValue('publisher', '');
-                    setValue('publishedDate', '');
-                    setValue('description', '');
-                    setValue('genre', '');
-                    setValue('isLearn', '');
-                    setValue('currentPage', '');
-                    setCustomGenre('');
-                    setSelectedGenre('');
-
-                    navigation.navigate('HomeTabs', {
-                        screen: 'HomeMainScreen',
-                        params: { newBookAdded: true },
-                    });
-                }
-            } else {
-                throw new Error('Erro ao cadastrar o livro');
-            }
-        } catch (error) {
-            console.error('Erro ao enviar dados ao servidor:', error);
-            Alert.alert('Erro', 'Erro ao cadastrar o livro.');
-        } finally {
-            setIsLoading(false);
+          await axios.post(`${API_BASE_URL}/notifications`, {
+            messageType: 'bookAdded',
+            recipient_id: 'allFriends',
+            book_id: created._id,
+            user_id: userMongoId,
+            created_at: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.warn('Falha ao notificar amigos:', err?.response?.data || err?.message);
         }
-    };
+      }
 
-    useEffect(() => {
-        const fetchGenres = async () => {
-            try {
-                const response = await fetch(`${API_BASE_URL}/books/${userMongoId}/genres`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
-                        // Filtra e ordena os gêneros recebidos
-                        const filteredGenres = data.filter((genre) => genre).sort((a, b) => a.localeCompare(b));
-                        setGenres(filteredGenres);
-                    } else {
-                        // Nenhum gênero encontrado, define lista vazia
-                        setGenres([]);
-                    }
-                } else {
-                    // Caso a resposta não seja "ok", define a lista como vazia
-                    setGenres([]);
-                    Alert.alert('Informação', 'Crie seus próprios gêneros ou seções para personalizar sua biblioteca!');
-                }
-            } catch {
-                // Em caso de erro, define a lista como vazia e mostra uma mensagem genérica
-                setGenres([]);
-                Alert.alert('Informação', 'Crie seus próprios gêneros ou seções para personalizar sua biblioteca!');
-            }
-        };
+      Alert.alert('Sucesso', 'Livro cadastrado com sucesso!');
+      navigation.navigate('HomeTabs', { screen: 'HomeMainScreen', params: { newBookAdded: true } });
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Erro', 'Não foi possível cadastrar o livro.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-        fetchGenres();
-    }, [userId]);
+  const onSubmit = () => handleSaveChanges();
 
-    // const renderAirbnbRating = () => {
-    //     return (
-    //         <>
-    //             <Text style={styles.label}>Avaliação do Livro</Text>
-    //             {/* Substituindo defaultRating diretamente no estado */}
-    //             <AirbnbRating
-    //                 count={5}
-    //                 reviews={["Terrível", "Ruim", "Médio", "Bom", "Muito bom"]}
-    //                 onFinishRating={handleRatingChange}
-    //                 size={30}
-    //                 showRating
-    //             />
-    //             <Text style={styles.ratingText}>Você avaliou: {rating} estrelas</Text>
-    //         </>
-    //     );
-    // };
+  return (
+    <SafeAreaView style={styles.root}>
+      {/* AppBar */}
+      <View style={styles.appbar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Icon name="arrow-back" size={26} color={COLORS.text} />
+        </TouchableOpacity>
+        <Text style={styles.appbarTitle}>Adicionar Livro</Text>
+        <TouchableOpacity onPress={handleSubmit(onSubmit)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Icon name="check" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
 
-    const renderRating = () => (
-        <View style={styles.ratingContainer}>
-            <Text style={styles.label}>Avaliação do Livro</Text>
-            <View style={styles.stars}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity
-                        key={star}
-                        onPress={() => setRating(star)} // Define a avaliação clicada
-                    >
-                        <Icon
-                            name={star <= rating ? "star" : "star-border"} // Ícone preenchido ou contornado
-                            size={50}
-                            defaultRating={bookDetails?.rating || 0} // Define o valor inicial
-                            rating={rating}
-                            color="#fdd835" // Cor amarela
-                        />
-                    </TouchableOpacity>
-                ))}
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Card: capa + meta */}
+        <View style={styles.card}>
+          {image ? (
+            <Image source={{ uri: image }} style={styles.cover} />
+          ) : (
+            <View style={[styles.cover, { alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={{ color: COLORS.label, fontWeight: '700' }}>Sem imagem</Text>
             </View>
+          )}
+          {!!title && <Text style={styles.title} numberOfLines={2}>{title}</Text>}
+          {!!authors && <Text style={styles.subtitle} numberOfLines={1}>{authors}</Text>}
+          <View style={styles.metaRow}>
+            {!!publisher && (
+              <View style={styles.chip}>
+                <Icon name="apartment" size={14} color={COLORS.text} />
+                <Text style={styles.chipTxt} numberOfLines={1}>{publisher}</Text>
+              </View>
+            )}
+            {!!publishedDate && (
+              <View style={styles.chip}>
+                <Icon name="event" size={14} color={COLORS.text} />
+                <Text style={styles.chipTxt}>{publishedDate}</Text>
+              </View>
+            )}
+            {pageCount ? (
+              <View style={styles.chip}>
+                <Icon name="menu-book" size={14} color={COLORS.text} />
+                <Text style={styles.chipTxt}>{pageCount} págs</Text>
+              </View>
+            ) : null}
+          </View>
+          {categories?.length > 0 && (
+            <Text style={styles.smallMuted}>Categorias: {categories.join(', ')}</Text>
+          )}
+          {!!description && (
+            <Text style={styles.desc} numberOfLines={6}>{description}</Text>
+          )}
         </View>
-    );
-    // if (hasPermission === null) {
-    //     return <Text>Solicitando permissão da câmera...</Text>;
-    // }
-    // if (hasPermission === false) {
-    //     return <Text>Sem acesso à câmera</Text>;
-    // }
 
-    return (
-        <SafeAreaView style={styles.container}>
+        {/* Card: prateleira */}
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.sectionTitle}>Prateleira</Text>
+            <TouchableOpacity
+              onPress={() =>
+                Alert.alert(
+                  'O que é a Prateleira?',
+                  'Organize seus livros como quiser: favoritos, por autor, gênero ou qualquer outro critério.'
+                )
+              }
+            >
+              <Icon name="help-outline" size={20} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
 
-            <ScrollView contentContainerStyle={styles.bookDetailsContainer}>
-                {bookDetails?.volumeInfo?.imageLinks?.thumbnail ? (
-                    <Image
-                        source={{ uri: bookDetails.volumeInfo.imageLinks.thumbnail }}
-                        style={styles.bookImage}
-                    />
-                ) : (
-                    <Text>Imagem não disponível</Text>
+          <Controller
+            control={control}
+            name="genre"
+            render={({ field: { onChange } }) => (
+              <>
+                <View style={styles.pickerWrap}>
+                  <Picker
+                    selectedValue={selectedGenre}
+                    onValueChange={(val) => {
+                      setSelectedGenre(val);
+                      onChange(val);
+                      const isOutro = val === 'Outro';
+                      setIsOtherGenre(isOutro);
+                      if (!isOutro) setCustomGenre('');
+                    }}
+                  >
+                    <Picker.Item label="Selecione ou crie uma prateleira" value="" />
+                    {genres.map((g) => (
+                      <Picker.Item key={g} label={g} value={g} />
+                    ))}
+                    <Picker.Item label="Outro" value="Outro" />
+                  </Picker>
+                </View>
+
+                {isOtherGenre && (
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Nome da nova prateleira"
+                    value={customGenre}
+                    onChangeText={(t) => {
+                      setCustomGenre(t);
+                      onChange(t);
+                    }}
+                    placeholderTextColor={COLORS.label}
+                  />
                 )}
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Título:</Text> {bookDetails?.volumeInfo?.title}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Autor(es):</Text> {bookDetails?.volumeInfo?.authors?.join(', ')}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Editora:</Text> {bookDetails?.volumeInfo?.publisher}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Categoria:</Text> {bookDetails?.volumeInfo?.categories?.join(', ') || 'N/A'}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Data de Publicação:</Text> {bookDetails?.volumeInfo?.publishedDate}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Classificação Média:</Text> {bookDetails?.volumeInfo?.averageRating || 'N/A'}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Número de Páginas:</Text> {bookDetails?.volumeInfo?.pageCount || 0}
-                </Text>
-                <Text style={styles.bookDetailText}>
-                    <Text style={styles.boldText}>Descrição:</Text> {bookDetails?.volumeInfo?.description || 'N/A'}
-                </Text>
+              </>
+            )}
+          />
+        </View>
 
-                <TouchableOpacity onPress={() =>
-                    Alert.alert(
-                        "O que é a Prateleira?",
-                        "A prateleira permite organizar seus livros da forma que preferir. Você pode criar seções como favoritos, por autor, gênero ou qualquer outro critério que facilite o acesso e a organização dos seus livros."
-                    )
-                }
-                    style={{ flexDirection: 'row', alignItems: 'center', marginTop: 20, }}
-                >
-                    <Text style={{ fontSize: 16, marginRight: 5, justifyContent: 'center' }}>Prateleira</Text>
-                    <Icon name="help-outline" size={24} color="gray" />
+        {/* Card: visibilidade e notificação */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Opções</Text>
 
-                </TouchableOpacity>
+          <Text style={styles.label}>Deixar visível?</Text>
+          <View style={styles.radioRow}>
+            <RadioButton
+              value="public"
+              status={isPublic ? 'checked' : 'unchecked'}
+              onPress={() => setIsPublic(true)}
+            />
+            <Text style={styles.radioTxt}>Público</Text>
 
-                <Controller
-                    control={control}
-                    name="genre"
-                    render={({ field: { onChange, value } }) => (
-                        <View>
-                            <Picker
-                                selectedValue={selectedGenre}
-                                style={styles.picker}
-                                onValueChange={(itemValue) => {
-                                    setSelectedGenre(itemValue);
-                                    onChange(itemValue);
-                                    if (itemValue === 'Outro') {
-                                        setIsOtherGenre(true);
-                                        setCustomGenre(''); // Limpa o campo customGenre quando "Outro" for selecionado
-                                    } else {
-                                        setIsOtherGenre(false);
-                                        setCustomGenre(''); // Limpa o campo customGenre quando qualquer outro gênero for selecionado
-                                    }
-                                }}
-                            >
-                                <Picker.Item label="Selecione ou crie uma prateleira" value="" />
-                                {genres.map((genre, index) => (  // Supondo que genre é uma string
-                                    <Picker.Item key={index} label={genre} value={genre} />  // Usa o gênero diretamente
-                                ))}
-                                <Picker.Item label="Outro" value="Outro" />
-                            </Picker>
+            <View style={{ width: 18 }} />
+            <RadioButton
+              value="private"
+              status={!isPublic ? 'checked' : 'unchecked'}
+              onPress={() => setIsPublic(false)}
+            />
+            <Text style={styles.radioTxt}>Privado</Text>
+          </View>
 
-                            {isOtherGenre && ( // Mostra o campo de texto se "Outro" for selecionado
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Digite o gênero"
-                                    value={customGenre}
-                                    onChangeText={(text) => {
-                                        setCustomGenre(text);
-                                        onChange(text); // Atualiza o valor do formulário
-                                    }}
-                                />
-                            )}
-                        </View>
-                    )}
-                />
-                <View style={styles.switchContainer}>
-                    <Text style={styles.label}>Deixar Visível?</Text>
-                    <View style={styles.radioGroup}>
-                        <RadioButton.Group
-                            onValueChange={newValue => setIsPublic(newValue === 'public')}
-                            value={isPublic ? 'public' : 'private'}
-                        >
-                            <View style={styles.radioItem}>
-                                <RadioButton value="public" />
-                                <Text style={styles.radioLabel}>Público</Text>
-                            </View>
-                            <View style={styles.radioItem}>
-                                <RadioButton value="private" />
-                                <Text style={styles.radioLabel}>Privado</Text>
-                            </View>
-                        </RadioButton.Group>
-                    </View>
+          <Text style={[styles.label, { marginTop: 10 }]}>Notificar amigos?</Text>
+          <View style={styles.radioRow}>
+            <RadioButton
+              value="yes"
+              status={notifyFriends ? 'checked' : 'unchecked'}
+              onPress={() => setNotifyFriends(true)}
+            />
+            <Text style={styles.radioTxt}>Sim</Text>
 
-                    <Text style={styles.label}>Notificar Amigos?</Text>
-                    <View style={styles.radioGroup}>
-                        <RadioButton.Group
-                            onValueChange={newValue => setNotifyFriends(newValue === 'yes')}
-                            value={notifyFriends ? 'yes' : 'no'}
-                        >
-                            <View style={styles.radioItem}>
-                                <RadioButton value="yes" />
-                                <Text style={styles.radioLabel}>Sim</Text>
-                            </View>
-                            <View style={styles.radioItem}>
-                                <RadioButton value="no" />
-                                <Text style={styles.radioLabel}>Não</Text>
-                            </View>
-                        </RadioButton.Group>
-                    </View>
+            <View style={{ width: 18 }} />
+            <RadioButton
+              value="no"
+              status={!notifyFriends ? 'checked' : 'unchecked'}
+              onPress={() => setNotifyFriends(false)}
+            />
+            <Text style={styles.radioTxt}>Não</Text>
+          </View>
+        </View>
 
-                    <View>
-                        <Text style={styles.label}>Já leu este livro?</Text>
-                        <View style={styles.radioGroup}>
-                            <RadioButton.Group
-                                onValueChange={(newValue) => {
-                                    setIsLearn(newValue); // Salva o valor real selecionado no estado
-                                    if (newValue === 'Não lido') {
-                                        setCurrentPage(''); // Reseta a página quando selecionado "Não lido"
-                                    }
-                                }}
-                                value={isLearn} // O valor do botão atualmente ativo
-                            >
-                                <View style={styles.radioItem}>
-                                    <RadioButton value="Lido" />
-                                    <Text style={styles.radioLabel}>Lido</Text>
-                                </View>
-                                <View style={styles.radioItem}>
-                                    <RadioButton value="Lendo" />
-                                    <Text style={styles.radioLabel}>Lendo</Text>
-                                </View>
-                                <View style={styles.radioItem}>
-                                    <RadioButton value="Não lido" />
-                                    <Text style={styles.radioLabel}>Não lido</Text>
-                                </View>
-                            </RadioButton.Group>
-                        </View>
-                    </View>
+        {/* Card: status, página e rating */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Leitura</Text>
 
-                    {/* Renderizar o componente de avaliação se estiver em "Lido" 
-                   // {isLearn === 'Lido' && renderAirbnbRating()}*/}
+          <View style={styles.radioRowWrap}>
+            {['Lido', 'Lendo', 'Não lido'].map((opt) => (
+              <TouchableOpacity key={opt} style={styles.radioItem} onPress={() => {
+                setStatusUi(opt);
+                if (opt === 'Não lido') setCurrentPage('');
+              }}>
+                <RadioButton value={opt} status={statusUi === opt ? 'checked' : 'unchecked'} />
+                <Text style={styles.radioTxt}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-                    {/* Renderizar o campo para página atual se estiver em "Lendo" */}
-                    {isLearn === 'Lendo' && (
-                        <View style={styles.pageInputContainer}>
-                            <TextInput
-                                style={styles.pageInput}
-                                placeholder="Digite a página atual"
-                                keyboardType="numeric"
-                                value={currentPage}
-                                onChangeText={setCurrentPage}
-                            />
-                        </View>
-                    )}
-                </View>
+          {statusUi === 'Lendo' && (
+            <TextInput
+              style={[styles.input, { marginTop: 6 }]}
+              placeholder="Página atual"
+              keyboardType="numeric"
+              value={currentPage}
+              onChangeText={setCurrentPage}
+              placeholderTextColor={COLORS.label}
+            />
+          )}
 
-                <View>
-                    {renderRating()}
-                </View>
-                <TouchableOpacity style={styles.button} onPress={handleSubmit(handleSaveChanges)}>
-                    <Text style={styles.buttonText}>Adicionar Livro</Text>
-                </TouchableOpacity>
+          <Text style={[styles.label, { marginTop: 10 }]}>Avaliação</Text>
+          <View style={styles.stars}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity key={star} onPress={() => setRating(star)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <Icon name={star <= rating ? 'star' : 'star-border'} size={28} color="#fdd835" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
-            </ScrollView>
-        </SafeAreaView>
-    );
+        <TouchableOpacity style={[styles.btn, styles.primaryBtn]} onPress={handleSubmit(onSubmit)}>
+          <Text style={styles.btnTxt}>Adicionar Livro</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={COLORS.secondary} />
+            <Text style={{ marginTop: 8, color: COLORS.textSecondary }}>Salvando…</Text>
+          </View>
+        </View>
+      )}
+    </SafeAreaView>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 20,
-        backgroundColor: '#fff',
-    },
-    header: {
-        fontSize: 32,
-        color: '#000',
-        marginBottom: 16,
-        textAlign: 'center',
-    },
+  root: { flex: 1, backgroundColor: COLORS.bg },
 
-    input: {
-        flex: 3,
-        borderWidth: 1,
-        borderRadius: 8,
-        padding: 10,
-    },
-    bookDetailsContainer: {
-        marginTop: 20,
-        padding: 10,
-        backgroundColor: '#f9f9f9',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#ddd',
-    },
-    bookImage: {
-        width: 150,
-        height: 200,
-        resizeMode: 'contain',
-        alignSelf: 'center',
-        marginBottom: 16,
-    },
-    bookDetailText: {
-        fontSize: 16,
-        marginBottom: 8,
-    },
-    boldText: {
-        fontWeight: 'bold',
-    },
-    radioGroup: {
-        flexDirection: 'row',
-        justifyContent: 'flex-start', // Para garantir que os botões fiquem alinhados à esquerda
-        marginVertical: 10,
-    },
-    radioItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginRight: 20, // Espaço entre os itens de rádio
-    },
-    radioLabel: {
-        fontSize: 14,
-        marginLeft: 8,
-    },
-    ratingText: {
-        fontSize: 16,
-        marginTop: 20,
-        fontStyle: 'italic',
-    },
-    button: {
-        backgroundColor: '#f3d00f', // Cor de fundo do botão
-        paddingVertical: 16, // Espaçamento vertical
-        paddingHorizontal: 20, // Espaçamento horizontal
-        borderRadius: 6, // Cantos arredondados
-        alignItems: 'center', // Centraliza o texto
-        marginTop: 20, // Margem superior
-        marginBottom: 30
-    },
-    buttonText: {
-        color: '#333', // Cor do texto
-        fontSize: 16, // Tamano da fonte
-        fontWeight: 'bold', // Negrito
-        textAlign: 'center', // Centraliza o texto
-    },
-    pageInputContainer: {
-        marginTop: 10,
-    },
-    pageInput: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 8,
-        padding: 10,
-        fontSize: 16,
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#333', // Cor do texto
-        marginBottom: 8, // Espaço abaixo do texto
-    },
-    picker: {
-        height: 60,
-        width: '100%',
-        backgroundColor: '#fff',
-        marginBottom: 20,
-    },
-    switchContainer: {
-        backgroundColor: '#fff',
-    }, ratingContainer: {
-        marginVertical: 20,
-    },
-    stars: {
-        flexDirection: "row",
-    },
+  // AppBar
+  appbar: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F6E68B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  appbarTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+
+  scroll: { padding: 16 },
+
+  // Card base
+  card: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    marginBottom: 12,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+
+  // Capa + meta
+  cover: {
+    width: 140,
+    height: 210,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  title: { fontSize: 18, fontWeight: '800', textAlign: 'center', color: COLORS.text },
+  subtitle: { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 4 },
+  metaRow: { flexDirection: 'row', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 8 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  chipTxt: { color: COLORS.text, fontWeight: '700', fontSize: 12 },
+  smallMuted: { fontSize: 12, color: COLORS.textSecondary, textAlign: 'center', marginTop: 8 },
+  desc: { marginTop: 10, color: COLORS.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'justify' },
+
+  // Seções
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+
+  // Inputs
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    color: COLORS.text,
+  },
+  pickerWrap: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: COLORS.card,
+  },
+
+  // Radios
+  radioRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  radioRowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  radioItem: { flexDirection: 'row', alignItems: 'center' },
+  radioTxt: { color: COLORS.text },
+
+  // Stars
+  stars: { flexDirection: 'row', gap: 4, marginTop: 6 },
+
+  // Botões
+  btn: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  primaryBtn: { backgroundColor: COLORS.primary, borderWidth: 1, borderColor: '#E9CC16' },
+  btnTxt: { color: COLORS.text, fontWeight: '800' },
+
+  // Loading overlay
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  loadingCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    alignItems: 'center',
+  },
 });
 
 export default AddBooks;

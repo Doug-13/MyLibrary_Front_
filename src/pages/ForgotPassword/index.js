@@ -1,142 +1,214 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, StatusBar, Image } from 'react-native';
-// import { useRouter } from 'expo-router';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  Image,
+  ActivityIndicator,
+  SafeAreaView,
+} from 'react-native';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../../firebase/firebase.config.js'
+import { auth } from '../../firebase/firebase.config.js';
 import { useNavigation } from '@react-navigation/native';
-import colors from '../../../constants/colors.js';
-
+import Feather from 'react-native-vector-icons/Feather';
 
 export default function ForgotPassword() {
-    const [userMail, setUserEmail] = useState('');
-    const [loading, setLoading] = useState(false); // Estado de carregamento
-    // const router = useRouter();
-    const navigation = useNavigation();
+  const [userMail, setUserEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigation = useNavigation();
 
-    function replacePass() {
-        if (userMail !== '') {
-            setLoading(true); // Ativa o estado de carregamento
-            sendPasswordResetEmail(auth, userMail)
-                .then(() => {
-                    alert("Foi enviado um e-mail para este endereço. Verifique sua caixa de e-mail.");
-                    navigation.goBack();
-                })
-                .catch((error) => {
-                    const errorMessage = error.message;
-                    alert("Ops, alguma coisa não deu certo. " + errorMessage + ". Tente novamente!!");
-                    return;
-                })
-                .finally(() => setLoading(false)); // Desativa o estado de carregamento
-        } else {
-            alert("É preciso informar um e-mail válido para efetuar a redefinição de senha");
-        }
+  function replacePass() {
+    if (userMail !== '') {
+      setLoading(true);
+      sendPasswordResetEmail(auth, userMail)
+        .then(() => {
+          Alert.alert(
+            'E-mail enviado',
+            'Enviamos instruções de redefinição para o seu e-mail.'
+          );
+          navigation.goBack();
+        })
+        .catch((error) => {
+          const errorMessage = error?.message || 'Tente novamente.';
+          Alert.alert('Ops', 'Algo não deu certo. ' + errorMessage);
+        })
+        .finally(() => setLoading(false));
+    } else {
+      Alert.alert(
+        'Atenção',
+        'Informe um e-mail válido para redefinir a senha.'
+      );
     }
+  }
 
-    return (
-        <KeyboardAvoidingView
-            style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BG }}>
+      <StatusBar barStyle="dark-content" backgroundColor={BRAND_BG} />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-            <ScrollView
-                contentContainerStyle={{ flexGrow: 1 }}
-                keyboardShouldPersistTaps="handled"
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.brandRow}>
+              <Image
+                source={require('../../../assets/logo_Preto.png')}
+                style={styles.logo}
+                resizeMode="contain"
+                accessible
+                accessibilityLabel="Logo do aplicativo"
+              />
+            </View>
+            <Text style={styles.headline}>Redefinir senha 🔐</Text>
+            <Text style={styles.subtitle}>
+              Informe seu e-mail para receber as instruções
+            </Text>
+          </View>
+
+          {/* Card */}
+          <View style={styles.card}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>E-mail</Text>
+              <View style={styles.inputWrapper}>
+                <Feather name="mail" size={20} style={styles.inputIcon} />
+                <TextInput
+                  placeholder="Digite seu e-mail"
+                  placeholderTextColor="#8A8A8A"
+                  style={styles.input}
+                  value={userMail}
+                  onChangeText={setUserEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  accessibilityLabel="Campo de e-mail"
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.primaryBtn, loading && styles.disabledBtn]}
+              onPress={replacePass}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Enviar instruções por e-mail"
             >
-                <View style={styles.containerHeader}>
-                    <Text style={styles.welcome}>Redefinir Senha</Text>
-                    <View style={styles.imageContainer}>
-                        <Image
-                            source={require('../../../assets/logo_Preto.png')}
-                            style={styles.image}
-                            resizeMode="contain"
-                        />
-                    </View>
-                </View>
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="send" size={18} color="#fff" style={styles.btnIcon} />
+                  <Text style={styles.primaryBtnText}>Enviar Instruções</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-                <View style={styles.containerForm}>
-                    <StatusBar style="auto" />
+            <View style={styles.linksRow}>
+              <TouchableOpacity onPress={() => navigation.goBack()}>
+                <Text style={styles.linkText}>Voltar para o login</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
 
-                    <Text style={styles.title}>Email</Text>
-                    <TextInput
-                        placeholder="Digite seu E-mail..."
-                        style={styles.input}
-                        value={userMail}
-                        onChangeText={setUserEmail}
-                    />
-
-                    <TouchableOpacity
-                        style={styles.button}
-                        onPress={replacePass}
-                        disabled={loading}
-                    >
-                        {loading ? (
-                            <Text style={styles.buttonText}>Enviando...</Text>
-                        ) : (
-                            <Text style={styles.buttonText}>Enviar Instruções</Text>
-                        )}
-                    </TouchableOpacity>
-                </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
-    );
+          <Text style={styles.footerNote}>
+            Verifique também a caixa de spam ou promoções
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
 }
 
+/** Paleta consistente com as outras telas */
+const BRAND_BG = '#EAF2FF';      // fundo suave (azul claro)
+const TEXT_PRIMARY = '#111111';
+const TEXT_SECONDARY = '#555';
+const SURFACE = '#FFFFFF';
+const BORDER = '#E8E8E8';
+const FIELD_BG = '#F7F7F7';
+
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f3d00f',
-    },
-    containerHeader: {
-        marginTop: '14%',
-        marginBottom: "8%",
-        paddingStart: '5%',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    welcome: {
-        fontSize: 30,
-        fontWeight: 'bold',
-        color: '#000000', 
-        marginVertical: 8,
-    },
-    imageContainer: {
-        alignItems: 'center',
-    },
-    image: {
-        width: 300,
-        height: 180,
-        borderRadius: 20,
-    },
-    containerForm: {
-        backgroundColor: '#fff',
-        flex: 1,
-        borderTopLeftRadius: 18,
-        borderTopRightRadius: 18,
-        paddingStart: '5%',
-        paddingEnd: '5%',
-    },
-    title: {
-        fontSize: 20,
-        marginTop: 28,
-    },
-    input: {
-        borderBottomWidth: 1,
-        height: 40,
-        marginBottom: 10,
-        fontSize: 16,
-    },
-    button: {
-        backgroundColor: '#000000',
-        width: '100%',
-        borderRadius: 6,
-        paddingVertical: 12,
-        marginTop: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    buttonText: {
-        fontSize: 19,
-        color: '#ffff',
-        fontWeight: 'bold',
-    },
+  container: { flex: 1, backgroundColor: BRAND_BG },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 24 },
+  header: { paddingTop: 16, alignItems: 'center' },
+  brandRow: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  logo: { width: 220, height: 150, borderRadius: 16 },
+  headline: { fontSize: 24, fontWeight: '700', color: TEXT_PRIMARY, marginTop: 4 },
+  subtitle: { fontSize: 14, color: TEXT_SECONDARY, marginTop: 4, textAlign: 'center' },
+
+  card: {
+    backgroundColor: SURFACE,
+    marginTop: 16,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+
+  inputGroup: { marginTop: 14 },
+  label: { fontSize: 14, color: TEXT_PRIMARY, marginBottom: 8, fontWeight: '600' },
+
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: FIELD_BG,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  inputIcon: { marginRight: 8, color: '#444' },
+  input: { flex: 1, color: TEXT_PRIMARY, fontSize: 16 },
+
+  primaryBtn: {
+    marginTop: 18,
+    backgroundColor: '#111111',
+    height: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  disabledBtn: { opacity: 0.6 },
+  btnIcon: { marginRight: 8 },
+  primaryBtnText: { color: '#fff', fontWeight: '700' },
+
+  linksRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  linkText: {
+    color: TEXT_PRIMARY,
+    textDecorationLine: 'underline',
+    fontSize: 14,
+  },
+
+  footerNote: {
+    textAlign: 'center',
+    color: TEXT_SECONDARY,
+    fontSize: 12,
+    marginTop: 18,
+  },
 });

@@ -1,111 +1,148 @@
-import React, { useContext, useEffect, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
-import { SafeAreaView, Text, StyleSheet, FlatList, View, Image, Modal, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState, memo } from 'react';
+import {
+  SafeAreaView,
+  Text,
+  StyleSheet,
+  FlatList,
+  View,
+  Image,
+  Modal,
+  TouchableOpacity,
+  RefreshControl,
+  Pressable,
+  TextInput,
+  InteractionManager,
+} from 'react-native';
+import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import LottieView from 'lottie-react-native';
 import { AuthContext } from '../../../context/AuthContext.js';
 import ModalBook from '../../components/Modal/index.js';
-import { useIsFocused } from '@react-navigation/native';
-import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
-
-import Icon from 'react-native-vector-icons/Ionicons';
-import LottieView from 'lottie-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_BASE_URL } from '../../config/api.js';
 
+// ---------- Tema ----------
+const PRIMARY = '#f3d00f';
+const BG = '#F6F7FB';
+const CARD = '#FFFFFF';
+const TEXT = '#1F2937';
+const MUTED = '#6B7280';
+const BORDER = '#E5E7EB';
+
+// ---------- Subcomponentes ----------
+const Rating = memo(({ rating }) => {
+  if (!rating) return null;
+  const full = Math.floor(rating);
+  const half = rating % 1 >= 0.5;
+  const empty = 5 - full - (half ? 1 : 0);
+  return (
+    <View style={styles.ratingRow}>
+      {Array.from({ length: full }).map((_, i) => (
+        <Ionicons key={`f-${i}`} name="star" size={14} />
+      ))}
+      {half && <Ionicons name="star-half" size={14} />}
+      {Array.from({ length: empty }).map((_, i) => (
+        <Ionicons key={`e-${i}`} name="star-outline" size={14} />
+      ))}
+    </View>
+  );
+});
+
+const Progress = memo(({ currentPage, pageCount }) => {
+  if (!currentPage || !pageCount) return null;
+  const pct = Math.min(currentPage / pageCount, 1);
+  return (
+    <View style={styles.progressWrap}>
+      <View style={[styles.progressBar, { width: `${pct * 100}%` }]} />
+      <Text style={styles.progressPct}>{Math.round(pct * 100)}%</Text>
+    </View>
+  );
+});
+
+const BookCard = memo(({ item, onPress }) => {
+  const src =
+    item.coverUrl && item.coverUrl.trim() !== ''
+      ? { uri: item.coverUrl }
+      : require('../../../assets/noImageAvailable.jpg');
+
+  return (
+    <Pressable style={styles.card} onPress={() => onPress(item)}>
+      <Image source={src} style={styles.cover} />
+      <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.cardAuthor} numberOfLines={1}>{item.author}</Text>
+      <Rating rating={item.rating} />
+      {item.status === 'lendo' && <Progress currentPage={item.currentPage} pageCount={item.page_count} />}
+    </Pressable>
+  );
+});
+
+const BookRow = memo(({ item, onPress }) => {
+  const src =
+    item.coverUrl && item.coverUrl.trim() !== ''
+      ? { uri: item.coverUrl }
+      : require('../../../assets/noImageAvailable.jpg');
+
+  return (
+    <Pressable style={styles.row} onPress={() => onPress(item)}>
+      <Image source={src} style={styles.rowCover} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.rowAuthor} numberOfLines={1}>{item.author}</Text>
+        <Rating rating={item.rating} />
+        {item.status === 'lendo' && <Progress currentPage={item.currentPage} pageCount={item.page_count} />}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={MUTED} />
+    </Pressable>
+  );
+});
+
+// ---------- Helpers ----------
+const normalizeTxt = (s = '') =>
+  s.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+// ---------- Tela ----------
 export default function MainScreen() {
-  // const { sendNotification } = useNotification();
   const navigation = useNavigation();
-  const { user, nome_completo, primeiro_nome, userId, userProfilePicture, userMongoId, timeStamp, setTimeStamp } = useContext(AuthContext);
-  const [originalSections, setOriginalSections] = useState([]); // Para manter todos os dados carregados
+  const { nome_completo, primeiro_nome, userProfilePicture, userMongoId } = useContext(AuthContext);
+
+  const [sections, setSections] = useState([]);
+  const [allSections, setAllSections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [isGridView, setIsGridView] = useState(true);
+
   const [bookModalVisible, setBookModalVisible] = useState(false);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedBook, setSelectedBook] = useState(null);
-  const [isGridView, setIsGridView] = useState(true);
-  const [allSections, setAllSections] = useState([]); // Armazena todos os dados
-  const [sections, setSections] = useState([]); // Armazena dados filtrados
-  const isFocused = useIsFocused();
   const [notifications, setNotifications] = useState([]);
+  const [selectedBook, setSelectedBook] = useState(null);
+
+  // Filtros
+  const [showAllBooks, setShowAllBooks] = useState(true);
   const [showPrivateBooks, setShowPrivateBooks] = useState(false);
   const [showLoanedBooks, setShowLoanedBooks] = useState(false);
-  const [showAllBooks, setShowAllBooks] = useState(true);
   const [hasPrivateBooks, setHasPrivateBooks] = useState(false);
   const [hasLoanedBooks, setHasLoanedBooks] = useState(false);
-  // ##########################################################################
 
-  useFocusEffect(
-    React.useCallback(() => {
-      // Reaplica os filtros sempre que a tela for reexibida
-      if (originalSections.length) {
-        const updatedSections = applyFilters(originalSections);
-        setSections(updatedSections);
-        if (updatedSections.length === 0) {
-          setError('Nenhum livro encontrado com os filtros aplicados.');
-        } else {
-          setError(null); // Remove a mensagem de erro se os filtros encontrgit statisarem resultados
-        }
-      }
-    }, [originalSections, showPrivateBooks, showLoanedBooks, showAllBooks])
-  );
+  // Busca
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
 
-   const fetchBooks = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/books/${userMongoId}/with-loans`);
-      const data = await response.json();
+  const isFocused = useIsFocused();
+  const mounted = useRef(true);
 
-      console.log('Dados recebidos:', data);
-      const formattedSections = categorizeBooksByGenre(data);
-      setOriginalSections(formattedSections); // Salva os dados originais
-      setSections(formattedSections); // Exibe inicialmente todos os dados
-
-      // Atualiza os estados para determinar quais botões mostrar
-      const privateBooksExist = data.some(book => book.visibility === 'private');
-      const loanedBooksExist = data.some(book =>
-        book.loans && book.loans.some(loan => loan.status === 'Pendente')
-      );
-
-
-      setHasPrivateBooks(privateBooksExist);
-      setHasLoanedBooks(loanedBooksExist);
-
-      setLoading(false);
-    } catch (err) {
-      console.error('Error fetching books:', err);
-      setError('Failed to load books');
-      setLoading(false);
-    }
-  };
-  const toggleViewMode = () => {
-    setIsGridView((prevMode) => !prevMode);
-  };
-
-  const openProfileModal = () => {
-    navigation.navigate('Profile');
-    // simulateNotifications();
-    //setNotificationModalVisible(true); // Corrige para usar o estado correto
-  };
-
-  const closeModal = () => {
-    setNotificationModalVisible(false); // Corrige para fechar o modal
-  };
-
+  // Debounce 300ms
   useEffect(() => {
-    if (isFocused) {
-      fetchBooks();
-    }
-  }, [isFocused]);
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
-
-
-  const categorizeBooksByGenre = (data) => {
-    const readingBooks = data.filter(book => book.status === 'lendo');
-
+  // ---------- Dados ----------
+  const categorizeBooksByGenre = useCallback((data) => {
+    const readingBooks = data.filter((b) => b.status === 'lendo');
     const readingSection = {
       title: 'Lendo',
-      books: readingBooks.map(book => ({
+      books: readingBooks.map((book) => ({
         id: book._id,
         title: book.title,
         author: book.author,
@@ -114,704 +151,488 @@ export default function MainScreen() {
         visibility: book.visibility,
         status: book.status,
         rating: book.rating,
-        currentPage: book.currentPage, // Adicionado
-        page_count: book.page_count,     // Adicionado
+        currentPage: book.currentPage,
+        page_count: book.page_count,
         loans: book.loans,
       })),
     };
 
     const categories = {};
     data.forEach((book) => {
-      if (book.status !== 'lendo') {
-        const genre = book.genre || 'Outros';
-        if (!categories[genre]) {
-          categories[genre] = { title: genre, books: [] };
-        }
-        categories[genre].books.push({
-          id: book._id,
-          title: book.title,
-          author: book.author,
-          coverUrl: book.image_url,
-          description: book.description,
-          visibility: book.visibility,
-          status: book.status,
-          rating: book.rating,
-          currentPage: book.currentPage, // Adicionado
-          page_count: book.page_count,     // Adicionado
-          loans: book.loans,
-        });
-      }
+      if (book.status === 'lendo') return;
+      const genre = book.genre || 'Outros';
+      if (!categories[genre]) categories[genre] = { title: genre, books: [] };
+      categories[genre].books.push({
+        id: book._id,
+        title: book.title,
+        author: book.author,
+        coverUrl: book.image_url,
+        description: book.description,
+        visibility: book.visibility,
+        status: book.status,
+        rating: book.rating,
+        currentPage: book.currentPage,
+        page_count: book.page_count,
+        loans: book.loans,
+      });
     });
 
-    const sortedSections = Object.values(categories).sort((a, b) =>
-      a.title.localeCompare(b.title)
-    );
+    const sorted = Object.values(categories).sort((a, b) => a.title.localeCompare(b.title));
+    return readingSection.books.length ? [readingSection, ...sorted] : sorted;
+  }, []);
 
-    return readingBooks.length > 0 ? [readingSection, ...sortedSections] : sortedSections;
-  };
+  // Filtros + Busca
+  const applyFilters = useCallback(
+    (data, query = '') => {
+      const q = normalizeTxt(query);
 
-  useEffect(() => {
-    // console.log('ModalBook Visible:', modalVisible);
-  }, [modalVisible]);
+      return data
+        .map((section) => {
+          // filtros
+          const baseFiltered = section.books.filter((book) => {
+            if (showAllBooks) return true;
+            if (showPrivateBooks && book.visibility === 'private') return true;
+            if (showLoanedBooks && book.loans?.length) {
+              const lastLoan = book.loans[book.loans.length - 1];
+              return lastLoan?.status === 'Pendente';
+            }
+            return false;
+          });
 
-  const handleBookPress = (book) => {
-    // console.log('ID do livro selecionado:', book.id);
-    if (book) {
-      navigation.navigate('BooksView', { bookId: book.id });
-    } else {
-      console.error('Livro não encontrado');
-    }
-  };
+          if (!q) return { ...section, books: baseFiltered };
 
-  const renderRatingStars = (rating) => {
-    if (!rating) return null; // Se não houver rating, não renderiza nada
-    const fullStars = Math.floor(rating);
-    const halfStar = rating % 1 >= 0.5;
-    const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
-    return (
-      <View style={styles.ratingContainer}>
-        {[...Array(fullStars)].map((_, index) => (
-          <Icon key={`full-${index}`} name="star" size={16} color="#FFD700" />
-        ))}
-        {halfStar && <Icon key="half" name="star-half" size={16} color="#BDC3C7" />}
-        {[...Array(emptyStars)].map((_, index) => (
-          <Icon key={`empty-${index}`} name="star-outline" size={16} color="#FFD700" />
-        ))}
-      </View>
-    );
-  };
+          // se prateleira bater, mantém todos os livros (respeitando filtros acima)
+          const sectionMatches = normalizeTxt(section.title).includes(q);
 
-  const truncateTitle = (title, limit) => {
-    return title.length > limit ? `${title.substring(0, limit)}...` : title;
-  };
+          // senão, filtra por título/autor
+          const searched = sectionMatches
+            ? baseFiltered
+            : baseFiltered.filter((b) => {
+                const t = normalizeTxt(b.title);
+                const a = normalizeTxt(b.author || '');
+                return t.includes(q) || a.includes(q);
+              });
 
-  const renderProgressBar = (currentPage, pageCount) => {
-    if (!currentPage || !pageCount) return null;
-
-    const progress = Math.min(currentPage / pageCount, 1); // Garante que não exceda 100%
-
-    return (
-      <View style={styles.progressContainer}>
-        <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
-        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-      </View>
-    );
-  };
-
-  const renderBookItem = ({ item }) => {
-    const imageSource = item.coverUrl && item.coverUrl.trim() !== ""
-      ? { uri: item.coverUrl }
-      : require('../../../assets/noImageAvailable.jpg');
-
-    // Calcula o percentual de leitura
-    const percentageRead = item.currentPage && item.page_count
-      ? Math.round((item.currentPage / item.page_count) * 100)
-      : 0;
-
-    // console.log("Livro", item.title, "Página Lendo", item.currentPage, "Página qtd", item.page_count, '- Percentage Read:', percentageRead);
-
-    return isGridView ? (
-      <TouchableOpacity style={styles.card} onPress={() => handleBookPress(item)}>
-        <Image source={imageSource} style={styles.coverImage} />
-        <Text style={styles.bookTitle}>{truncateTitle(item.title, 20)}</Text>
-        <Text style={styles.bookAuthor}>{item.author}</Text>
-        {renderRatingStars(item.rating)}
-        {/* Barra de progresso chamada aqui */}
-        {item.status === 'lendo' && renderProgressBar(item.currentPage, item.page_count)}
-      </TouchableOpacity>
-    ) : (
-      <TouchableOpacity style={styles.bookListItem} onPress={() => handleBookPress(item)}>
-        <Image source={imageSource} style={styles.bookCover} />
-        <View style={styles.bookDetails}>
-          <Text style={styles.bookTitle}>{truncateTitle(item.title, 20)}</Text>
-          <Text style={styles.bookAuthor}>{item.author}</Text>
-          {renderRatingStars(item.rating)}
-          {/* Barra de progresso chamada aqui */}
-          {item.status === 'lendo' && renderProgressBar(item.currentPage, item.page_count)}
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-
-  const renderSection = ({ item }) => (
-    <View style={styles.sectionContainer}>
-      <Text style={styles.sectionTitle}>{item.title}</Text>
-      <FlatList
-        data={item.books}
-        renderItem={renderBookItem}
-        keyExtractor={(book) => book.id} // Aqui você já está usando o key correto
-        horizontal={isGridView}
-        showsHorizontalScrollIndicator={false}
-      />
-    </View>
+          return { ...section, books: searched };
+        })
+        .filter((s) => s.books.length > 0)
+        .sort((a, b) => {
+          if (a.title === 'Lendo') return -1;
+          if (b.title === 'Lendo') return 1;
+          return a.title.localeCompare(b.title);
+        });
+    },
+    [showAllBooks, showPrivateBooks, showLoanedBooks]
   );
 
-  // const handleAddBook = () => {
-  //   navigation.navigate('SearchBooks');
-  // };
+  const fetchBooks = useCallback(async () => {
+    try {
+      if (!refreshing) setLoading(true);
+      setError(null);
 
-  // ##########################################################################
-  const applyFilters = (data) => {
-    return data
-      .map((section) => {
-        const filteredBooks = section.books.filter((book) => {
-          if (showAllBooks) return true; // Exibir todos os livros
+      const res = await fetch(`${API_BASE_URL}/books/${userMongoId}/with-loans`);
+      const data = await res.json();
+      if (!mounted.current) return;
 
-          if (showPrivateBooks && book.visibility === 'private') return true; // Livros privados
+      // espera a transição terminar antes do trabalho pesado
+      InteractionManager.runAfterInteractions(() => {
+        if (!mounted.current) return;
 
-          if (showLoanedBooks && book.loans && book.loans.length > 0) {
-            const lastLoan = book.loans[book.loans.length - 1];
-            return lastLoan.status === 'Pendente'; // Apenas empréstimos pendentes
-          }
+        const formatted = categorizeBooksByGenre(data);
+        setAllSections(formatted);
+        setSections(applyFilters(formatted, debouncedQuery));
 
-          return false; // Exclui livros que não se enquadram nos filtros
-        });
-
-        return { ...section, books: filteredBooks };
-      })
-      .filter((section) => section.books.length > 0) // Remove seções vazias
-      .sort((a, b) => {
-        // Ordena colocando "Lendo" primeiro
-        if (a.title === 'Lendo') return -1;
-        if (b.title === 'Lendo') return 1;
-        return a.title.localeCompare(b.title);
+        setHasPrivateBooks(data.some((b) => b.visibility === 'private'));
+        setHasLoanedBooks(data.some((b) => b.loans?.some((l) => l.status === 'Pendente')));
       });
-  };
-
-
-  useEffect(() => {
-    // Reaplica os filtros quando a tela for reexibida
-    const updatedSections = applyFilters(originalSections);
-    setSections(updatedSections);
-  }, [isFocused]);
-
-
-  useEffect(() => {
-    if (!hasLoanedBooks) {
-      setShowAllBooks(true);
-      setShowPrivateBooks(false);
-      setShowLoanedBooks(false);
+    } catch (e) {
+      if (!mounted.current) return;
+      setError('Falha ao carregar os livros. Tente novamente.');
+    } finally {
+      if (!mounted.current) return;
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [hasLoanedBooks]);
+  }, [API_BASE_URL, userMongoId, applyFilters, categorizeBooksByGenre, refreshing, debouncedQuery]);
 
-  useEffect(() => {
-    if (!hasPrivateBooks) {
-      setShowAllBooks(true);
-      setShowPrivateBooks(false);
-      setShowLoanedBooks(false);
-    }
-  }, [hasPrivateBooks]);
-
-  // Efeitos para atualizar a exibição com base nos filtros
-  useEffect(() => {
-    if (originalSections.length) {
-      const updatedSections = applyFilters(originalSections);
-      setSections(updatedSections);
-      // Modificação: Não definir erro se não houver livros
-      if (updatedSections.length === 0) {
-        setError(null); // Não exibir mensagem de erro
-      } else {
-        setError(null); // Remove a mensagem de erro se os filtros encontrarem resultados
-      }
-    }
-  }, [originalSections, showPrivateBooks, showLoanedBooks, showAllBooks]);
-
-  // Carrega os livros ao focar na tela
-  useEffect(() => {
-    if (isFocused) {
+  useFocusEffect(
+    useCallback(() => {
+      mounted.current = true;
       fetchBooks();
-    }
-  }, [isFocused]);
+      return () => { mounted.current = false; };
+    }, [fetchBooks])
+  );
 
-  // ##########################################################################
-  const handlePrivateBooksFilter = () => {
-    setShowAllBooks(false);
-    setShowPrivateBooks(true);
-    setShowLoanedBooks(false);
-  };
+  // Reaplica filtros/busca quando mudarem, após animação
+  useEffect(() => {
+    if (!allSections.length) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (!mounted.current) return;
+      setSections(applyFilters(allSections, debouncedQuery));
+    });
+    return () => task.cancel();
+  }, [allSections, applyFilters, debouncedQuery]);
 
-  const handleAllBooksFilter = () => {
+  // ---------- Handlers ----------
+  const onToggleView = useCallback(() => setIsGridView((v) => !v), []);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchBooks();
+  }, [fetchBooks]);
+
+  const onBookPress = useCallback(
+    async (book) => {
+      if (!book?.id) return;
+
+      // prefetch da capa enquanto anima
+      if (book.coverUrl) {
+        try { await Image.prefetch(book.coverUrl); } catch {}
+      }
+      navigation.navigate('BooksView', { bookId: book.id });
+    },
+    [navigation]
+  );
+
+  const onEdit = useCallback(
+    (book) => {
+      navigation.navigate('EditBooks', { selectedBook: book });
+    },
+    [navigation]
+  );
+
+  const filterAll = useCallback(() => {
     setShowAllBooks(true);
     setShowPrivateBooks(false);
     setShowLoanedBooks(false);
-  };
-
-  const handleShowLoanedBooks = () => {
-    setShowLoanedBooks(true);
-    setShowPrivateBooks(false);
+  }, []);
+  const filterPrivate = useCallback(() => {
     setShowAllBooks(false);
-  };
-  useEffect(() => {
-    // console.log('ModalBook Visible:', bookModalVisible);
-  }, [bookModalVisible]);
+    setShowPrivateBooks(true);
+    setShowLoanedBooks(false);
+  }, []);
+  const filterLoaned = useCallback(() => {
+    setShowAllBooks(false);
+    setShowPrivateBooks(false);
+    setShowLoanedBooks(true);
+  }, []);
 
-  const handleEdit = (book) => {
-    navigation.navigate('EditBooks', { selectedBook: book });
-  };
+  // Contadores
+  const counts = useMemo(() => {
+    const total = allSections.reduce((acc, s) => acc + s.books.length, 0);
+    const priv = allSections.reduce((acc, s) => acc + s.books.filter((b) => b.visibility === 'private').length, 0);
+    const loan = allSections.reduce((acc, s) => acc + s.books.filter((b) => b.loans?.some((l) => l.status === 'Pendente')).length, 0);
+    return { total, priv, loan };
+  }, [allSections]);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <LottieView
-          source={require('../../../assets/animation3.json')}
-          autoPlay
-          loop
-          style={{ width: 200, height: 200 }}
+  // Renderers
+  const renderBookItem = useCallback(
+    ({ item }) => (isGridView ? <BookCard item={item} onPress={onBookPress} /> : <BookRow item={item} onPress={onBookPress} />),
+    [isGridView, onBookPress]
+  );
+
+  const renderSection = useCallback(
+    ({ item }) => (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{item.title}</Text>
+        <FlatList
+          data={item.books}
+          renderItem={renderBookItem}
+          keyExtractor={(b) => b.id}
+          horizontal={isGridView}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={isGridView ? styles.hList : undefined}
+          removeClippedSubviews
+          initialNumToRender={6}
+          windowSize={10}
+          getItemLayout={
+            isGridView ? (_, index) => ({ length: 168, offset: 168 * index, index }) : undefined
+          }
         />
-        <Text style={styles.loadingText}>Carregando sua biblioteca, aguarde...</Text>
       </View>
-    );
-  }
+    ),
+    [isGridView, renderBookItem]
+  );
+
+  // ---------- Estados de carregamento/erro ----------
+  // if (loading && !refreshing) {
+  //   return (
+  //       <View style={styles.loading}>
+  //         <LottieView source={require('../../../assets/animation3.json')} autoPlay loop style={{ width: 200, height: 200 }} />
+  //         <Text style={styles.loadingText}>Carregando sua biblioteca…</Text>
+  //       </View>
+  //   );
+  // }
 
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Text style={{ color: 'red', textAlign: 'center' }}>{error}</Text>
+      <SafeAreaView style={[styles.container, { justifyContent: 'center' }]}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={fetchBooks}>
+          <Ionicons name="refresh" size={18} color={TEXT} />
+          <Text style={styles.retryTxt}>Tentar novamente</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
+  const hasBooks = sections.length > 0;
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.containerIcons}>
-        <TouchableOpacity style={styles.menuIcon} onPress={() => navigation.openDrawer()}>
-          <MaterialIcons name="menu" size={28} color="black" />
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.openDrawer()} accessibilityLabel="Abrir menu">
+          <MaterialIcons name="menu" size={26} color={TEXT} />
         </TouchableOpacity>
-        <Text style={styles.menuText}>Olá {primeiro_nome}</Text>
-        <TouchableOpacity onPress={openProfileModal}>
+
+        <Text style={styles.hello}>Olá, <Text style={{ fontWeight: '800' }}>{primeiro_nome}</Text></Text>
+
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')} accessibilityLabel="Abrir perfil">
           <Image
             source={
-              userProfilePicture && userProfilePicture.trim() !== ""
+              userProfilePicture && userProfilePicture.trim() !== ''
                 ? { uri: userProfilePicture }
                 : require('../../../assets/perfilLendo.png')
             }
-            style={styles.profileImage}
+            style={styles.avatar}
           />
-
         </TouchableOpacity>
-        <Modal
-          transparent={true}
-          visible={notificationModalVisible}
-          animationType="fade"
-          onRequestClose={closeModal}
-        >
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>Notificações</Text>
-              <FlatList
-                data={notifications}
-                renderItem={({ item }) => (
-                  <View style={styles.notificationItem}>
-                    <Text style={styles.notificationTitle}>{item.title}</Text>
-                    <Text style={styles.notificationMessage}>{item.message}</Text>
-                  </View>
-                )}
-                keyExtractor={(item, index) => index.toString()}
-              />
-              <TouchableOpacity style={styles.closeButton} onPress={closeModal}>
-                <Text style={styles.closeButtonText}>Fechar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
       </View>
 
-      <Text style={styles.header}>Minha Biblioteca</Text>
-      {/* <TouchableOpacity style={styles.addButton} onPress={handleAddBook}>
-        <Text style={styles.addButtonText}>+</Text>
-      </TouchableOpacity> */}
+      {/* Header + toggle */}
+      <View style={styles.headerRow}>
+        <Text style={styles.headerTitle}>Minha Biblioteca</Text>
+        <TouchableOpacity style={styles.toggle} onPress={onToggleView} accessibilityLabel="Alternar visualização">
+          <Ionicons name={isGridView ? 'list' : 'grid'} size={18} color={TEXT} />
+          <Text style={styles.toggleTxt}>{isGridView ? 'Lista' : 'Grade'}</Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* Botões de filtro */}
-      <View style={styles.filterContainer}>
-        {/* O botão "Todos" sempre será exibido */}
-        {sections.length > 0 && (
-          <TouchableOpacity
-            style={[styles.filterButton, showAllBooks && styles.filterButtonActive]}
-            onPress={handleAllBooksFilter}
-          >
-            <Text style={styles.filterText}>Todos</Text>
-          </TouchableOpacity>
-        )}
-        {/* O botão "Privados" só aparece se houver livros privados */}
-        {hasPrivateBooks && (
-          <TouchableOpacity
-            style={[styles.filterButton, showPrivateBooks && styles.filterButtonActive]}
-            onPress={handlePrivateBooksFilter}
-          >
-            <Text style={styles.filterText}>Privados</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* O botão "Emprestados" só aparece se houver livros emprestados */}
-        {hasLoanedBooks && (
-          <TouchableOpacity
-            style={[styles.filterButton, showLoanedBooks && styles.filterButtonActive]}
-            onPress={handleShowLoanedBooks}
-          >
-            <Text style={styles.filterText}>Emprestados</Text>
+      {/* Busca */}
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={18} color={MUTED} />
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Buscar por livro ou prateleira…"
+          placeholderTextColor="#9CA3AF"
+          style={styles.searchInput}
+          returnKeyType="search"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} accessibilityLabel="Limpar busca">
+            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
           </TouchableOpacity>
         )}
       </View>
-      {/* ########################################################################## */}
-      {sections.length === 0 && (
-        <View style={styles.emptyLibraryContainer}>
-          <Image
-            source={require('../../../assets/emptyLibrary.jpg')}
-            style={styles.emptyImage}
-            resizeMode="contain"
-          />
 
-          <Text style={styles.welcomeText}>👋 Olá, {nome_completo}!</Text>
+      {/* Filtros */}
+      {hasBooks && (
+        <View style={styles.filters}>
+          <Pressable
+            onPress={filterAll}
+            style={[styles.chip, showAllBooks && styles.chipActive]}
+            accessibilityState={{ selected: showAllBooks }}
+          >
+            <Text style={[styles.chipTxt, showAllBooks && styles.chipTxtActive]}>Todos</Text>
+            <View style={[styles.badge, showAllBooks && styles.badgeActive]}><Text style={styles.badgeTxt}>{counts.total}</Text></View>
+          </Pressable>
 
-          <Text style={styles.emptyTitle}>
-            📚 Sua biblioteca está vazia
-          </Text>
+          {hasPrivateBooks && (
+            <Pressable
+              onPress={filterPrivate}
+              style={[styles.chip, showPrivateBooks && styles.chipActive]}
+              accessibilityState={{ selected: showPrivateBooks }}
+            >
+              <Text style={[styles.chipTxt, showPrivateBooks && styles.chipTxtActive]}>Privados</Text>
+              <View style={[styles.badge, showPrivateBooks && styles.badgeActive]}><Text style={styles.badgeTxt}>{counts.priv}</Text></View>
+            </Pressable>
+          )}
 
-          <Text style={styles.emptyMessage}>
-            Mas isso é só o começo da sua jornada literária!
-          </Text>
+          {hasLoanedBooks && (
+            <Pressable
+              onPress={filterLoaned}
+              style={[styles.chip, showLoanedBooks && styles.chipActive]}
+              accessibilityState={{ selected: showLoanedBooks }}
+            >
+              <Text style={[styles.chipTxt, showLoanedBooks && styles.chipTxtActive]}>Emprestados</Text>
+              <View style={[styles.badge, showLoanedBooks && styles.badgeActive]}><Text style={styles.badgeTxt}>{counts.loan}</Text></View>
+            </Pressable>
+          )}
+        </View>
+      )}
 
-          <Text style={styles.emptyMessage}>
-            ➕ Toque no botão "+" para adicionar seus primeiros livros e montar sua estante dos sonhos.
-          </Text>
-
-          <Text style={styles.emptyMessage}>
-            🤝 Conecte-se com seus amigos, veja o que estão lendo e descubra novas histórias juntos! 🌟
+      {/* Sem resultados para a busca */}
+      {debouncedQuery.length > 0 && sections.length === 0 && (
+        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+          <Text style={{ color: MUTED }}>
+            Nenhum resultado para “{debouncedQuery}”. Tente outro termo.
           </Text>
         </View>
       )}
 
+      {/* Empty state */}
+      {!hasBooks && debouncedQuery.length === 0 && (
+        <View style={styles.emptyWrap}>
+          <Image source={require('../../../assets/emptyLibrary.jpg')} style={styles.emptyImg} resizeMode="contain" />
+          <Text style={styles.emptyHello}>👋 Olá, {nome_completo}!</Text>
+          <Text style={styles.emptyTitle}>📚 Sua biblioteca está vazia</Text>
+          <Text style={styles.emptyMsg}>Toque em “+” para adicionar seus primeiros livros e começar sua estante dos sonhos.</Text>
+          <Text style={styles.emptyMsg}>Conecte-se com amigos e descubra novas leituras juntos! 🌟</Text>
+        </View>
+      )}
 
-
-
+      {/* Seções */}
       <FlatList
         data={sections}
         renderItem={renderSection}
-        keyExtractor={(section) => section.title}
-        contentContainerStyle={[styles.list, { paddingBottom: 20 }]}
+        keyExtractor={(s) => s.title}
+        contentContainerStyle={styles.listContent}
         scrollIndicatorInsets={{ right: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} />}
       />
 
-      {/* Modal para exibir detalhes do livro */}
+      {/* Modal de notificações */}
+      <Modal transparent visible={notificationModalVisible} animationType="fade" onRequestClose={() => setNotificationModalVisible(false)}>
+        <View style={styles.modalBackground}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Notificações</Text>
+            <FlatList
+              data={notifications}
+              keyExtractor={(_, i) => `n-${i}`}
+              renderItem={({ item }) => (
+                <View style={styles.notifItem}>
+                  <Text style={styles.notifTitle}>{item.title}</Text>
+                  <Text style={styles.notifMsg}>{item.message}</Text>
+                </View>
+              )}
+            />
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setNotificationModalVisible(false)}>
+              <Text style={styles.closeTxt}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal do livro */}
       <ModalBook
-        modalVisible={bookModalVisible} // This prop is already correctly named
+        modalVisible={bookModalVisible}
         closeModal={() => setBookModalVisible(false)}
         selectedBook={selectedBook}
-        onEdit={(handleEdit)}
-        onDelete={() => {
-          // console.log('Livro deletado');
-          fetchBooks(); // Refresh books after deletion
-        }}
+        onEdit={onEdit}
+        onDelete={() => fetchBooks()}
       />
     </SafeAreaView>
-
-
   );
 }
 
+// ---------- Estilos ----------
 const styles = StyleSheet.create({
-  // Fundo escurecido do modal
-  modalBackground: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-  // Contêiner do modal
-  modalContainer: {
-    width: '90%',
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  // Título do modal
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  bookTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  bookAuthor: {
-    fontSize: 10,
-    color: '#555',
-    textAlign: 'center',
-  },
-  // Estilo para cada item de notificação
-  notificationItem: {
-    marginVertical: 8,
-    padding: 15,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Título de cada notificação
-  notificationTitle: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 5,
-  },
-  // Mensagem de cada notificação
-  notificationMessage: {
-    fontSize: 14,
-    color: '#666',
-  },
-  // Botão de fechar
-  closeButton: {
-    marginTop: 20,
-    backgroundColor: '#f3d00f',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  // Texto do botão de fechar
-  closeButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
+  container: { flex: 1, backgroundColor: BG },
 
-  // Outros estilos do aplicativo
-  container: {
-    flex: 1,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-  },
-  header: {
-    fontSize: 32,
-    color: '#333',
-    marginBottom: 16,
-    paddingHorizontal: 16,
-  },
-  containerIcons: {
-    backgroundColor: '#f3d00f',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 5,
-    paddingBottom: 5,
-    width: '100%',
-  },
-  menuText: {
-    fontSize: 20,
-  },
-  menuIcon: {
-    padding: 5,
-    zIndex: 9999,
-  },
-  profileImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#fff',
-    borderColor: '#fff',
-    borderWidth: 1,
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: 10,
-    right: 20,
-    backgroundColor: '#f3d00f',
-    borderRadius: 30,
-    width: 60,
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
-  },
-  addButtonText: {
-    color: '#333',
-    fontSize: 24,
-  },
-  sectionContainer: {
-    marginBottom: 24,
-    width: '100%',
-    paddingHorizontal: 16,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#333',
-  },
-  list: {
-    paddingBottom: 5,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 8,
-    marginHorizontal: 8,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    width: 130,
-    alignItems: 'center',
-  },
-  coverImage: {
-    width: 100,
-    height: 150,
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  bookTitleStyle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 5,
-  },
-  bookAuthorStyle: {
-    fontSize: 16,
-    color: '#555',
-    textAlign: 'center',
-  },
-  bookListItem: {
+  topBar: {
+    backgroundColor: PRIMARY,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
-    padding: 10,
-    backgroundColor: '#fff',
-    borderRadius: 5,
-    elevation: 3,
-  },
-  bookCover: {
-    width: 50,
-    height: 75,
-    marginRight: 10,
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginVertical: 16,
-    width: '100%',
-    paddingHorizontal: 16,
-  },
-  filterButton: {
-    flex: 1,
-    marginHorizontal: 5,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderWidth: 1,
-    borderColor: '#6200ee',
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    alignItems: 'center',
+    gap: 12,
   },
-  filterButtonActive: {
-    backgroundColor: '#f3d00f',
-    borderColor: '#f3d00f',
-  },
-  filterText: {
-    color: '#333',
-    fontWeight: 'bold',
-  },
-  toggleButton: {
-    position: 'absolute',
-    top: 10,
-    right: 20,
-    zIndex: 9999,
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 20,
-    elevation: 5,
-  },
-  bookDetails: {
-    flex: 1,
-  },
-  ratingContainer: {
+  iconBtn: { padding: 6, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.05)' },
+  hello: { flex: 1, textAlign: 'center', fontSize: 16, color: TEXT, fontWeight: '600' },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', borderWidth: 1, borderColor: '#fff' },
+
+  headerRow: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6, flexDirection: 'row', alignItems: 'center' },
+  headerTitle: { fontSize: 28, color: TEXT, fontWeight: '800', flex: 1 },
+  toggle: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: CARD, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: BORDER },
+  toggleTxt: { color: TEXT, fontWeight: '600' },
+
+  searchWrap: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    gap: 8,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  progressContainer: {
-    marginTop: 19,
-    width: '100%',
-    height: 6,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 3,
+  searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 0 },
+
+  filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: BORDER, backgroundColor: CARD, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  chipActive: { backgroundColor: PRIMARY, borderColor: PRIMARY },
+  chipTxt: { color: TEXT, fontWeight: '600' },
+  chipTxtActive: { color: '#111827' },
+  badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: BORDER, alignItems: 'center', justifyContent: 'center' },
+  badgeActive: { backgroundColor: '#111827' },
+  badgeTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
+
+  listContent: { paddingBottom: 24 },
+
+  section: { paddingHorizontal: 16, paddingTop: 14 },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: TEXT, marginBottom: 10 },
+
+  hList: { paddingRight: 8 },
+
+  card: {
+    width: 132,
+    backgroundColor: CARD,
+    borderRadius: 16,
+    padding: 10,
+    marginRight: 12,
+    elevation: 3,
+    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#76c7c0',
-    borderRadius: 3,
-  },
-  progressText: {
-    fontSize: 12,
-    color: '#333',
-    position: 'absolute',
-    left: '40%',
-    top: -18,
-  },
-  emptyLibraryContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-    backgroundColor: '#effafc',
-    borderRadius: 30,
-  },
-  emptyImage: {
-    width: 200,
-    height: 200,
-    marginBottom: 20,
-  },
-  welcomeText: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#222',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 8,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  emptyMessage: {
-    fontSize: 16,
-    color: '#555',
-    textAlign: 'center',
+  cover: { width: '100%', height: 164, borderRadius: 10, marginBottom: 8, backgroundColor: '#EEE' },
+  cardTitle: { fontSize: 12, fontWeight: '700', color: TEXT },
+  cardAuthor: { fontSize: 11, color: MUTED, marginTop: 2 },
+
+  row: {
+    backgroundColor: CARD,
+    borderRadius: 16,
+    padding: 12,
     marginBottom: 10,
-    lineHeight: 22,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: BORDER,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#3F51B5",
-    textAlign: "center",
-    fontWeight: "500",
-  },
+  rowCover: { width: 60, height: 88, borderRadius: 8, backgroundColor: '#EEE' },
+  rowTitle: { fontSize: 14, fontWeight: '800', color: TEXT },
+  rowAuthor: { fontSize: 12, color: MUTED, marginTop: 2 },
+
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
+
+  progressWrap: { marginTop: 10, height: 8, backgroundColor: '#E9ECEF', borderRadius: 999, overflow: 'hidden', position: 'relative' },
+  progressBar: { position: 'absolute', left: 0, top: 0, bottom: 0 },
+  progressPct: { position: 'absolute', right: 8, top: -18, fontSize: 11, color: MUTED },
+
+  emptyWrap: { paddingHorizontal: 24, paddingTop: 30, alignItems: 'center' },
+  emptyImg: { width: 200, height: 200, marginBottom: 10 },
+  emptyHello: { fontSize: 20, fontWeight: '800', color: TEXT, marginBottom: 6, textAlign: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: TEXT, marginBottom: 6, textAlign: 'center' },
+  emptyMsg: { fontSize: 14, color: MUTED, textAlign: 'center', lineHeight: 20, marginBottom: 4 },
+
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG },
+  loadingText: { marginTop: 12, fontSize: 16, color: TEXT, fontWeight: '600' },
+
+  errorText: { color: '#B91C1C', textAlign: 'center', fontSize: 16, marginBottom: 12, paddingHorizontal: 24 },
+  retryBtn: { alignSelf: 'center', flexDirection: 'row', gap: 8, backgroundColor: PRIMARY, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: '#EAB308' },
+  retryTxt: { color: TEXT, fontWeight: '700' },
+
+  // Modal
+  modalBackground: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+  modalCard: { width: '90%', backgroundColor: CARD, borderRadius: 20, padding: 20, elevation: 10 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: TEXT, marginBottom: 12, textAlign: 'center' },
+  notifItem: { marginVertical: 8, padding: 14, backgroundColor: '#FAFAFA', borderRadius: 12, borderWidth: 1, borderColor: BORDER },
+  notifTitle: { fontWeight: '800', fontSize: 15, color: TEXT, marginBottom: 4 },
+  notifMsg: { fontSize: 13, color: MUTED },
+  closeBtn: { marginTop: 16, backgroundColor: PRIMARY, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+  closeTxt: { fontSize: 16, fontWeight: '800', color: TEXT },
 });

@@ -6,6 +6,7 @@ import Routes from './routes/index'; // Caminho para suas rotas
 import { AuthProvider } from './context/AuthContext'; // Contexto de autenticação
 import { SafeAreaProvider } from 'react-native-safe-area-context'; // SafeArea para novas versões
 
+
 export default function App() {
   return (
     <SafeAreaProvider>

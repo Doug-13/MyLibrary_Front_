@@ -111,4 +111,6 @@ To learn more about React Native, take a look at the following resources:
  - Removido o botão Todos quando não há livro na biblioteca;
 
  # Versão 2025.00.02
+ - Ajuste lupa tela de amigos;
+ - Ajuste scroll último amigo;  
  - 

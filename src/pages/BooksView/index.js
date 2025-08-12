@@ -1,609 +1,530 @@
-import React, { useEffect, useState, useContext } from 'react';
-import { View, Image, Pressable, Text, StyleSheet, TextInput, TouchableOpacity, Button, ScrollView, ActivityIndicator, Modal } from 'react-native';
+import React, { useEffect, useState, useContext, useCallback, useMemo } from 'react';
+import {
+  View,
+  Image,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  SafeAreaView,
+} from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { RadioButton } from 'react-native-paper';
 import LottieView from 'lottie-react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import { AuthContext } from '../../../context/AuthContext.js';
+import { API_BASE_URL } from '../../config/api.js';
 
-import { API_BASE_URL } from '../../config/api.js'; 
+// ===== Design System (MyLibrary App) =====
+const COLORS = {
+  primary: '#F3D00F',
+  secondary: '#4E8CFF',
+  bg: '#F8F9FA',
+  card: '#FFFFFF',
+  text: '#2D3436',
+  textSecondary: '#636E72',
+  label: '#B2BEC3',
+  border: '#E0E0E0',
+  error: '#DC3545',
+  success: '#28A745',
+};
+const RADIUS = 12;
+const ELEV = 2;
 
 const BooksView = () => {
-    const route = useRoute();
-    const navigation = useNavigation();
-    const { timeStamp } = useContext(AuthContext);
-    const { bookId } = route.params;
-    const [bookDetails, setBookDetails] = useState(null);
-    const [loanDetails, setLoanDetails] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [currentPage, setCurrentPage] = useState(''); // Página atual
-    const [isLearn, setIsLearn] = useState(true);
-    const [isReading, setIsReading] = useState(false); // Status de leitura
-    const [isModalVisible, setModalVisible] = useState(false);
-    const [selectedLoanId, setSelectedLoanId] = useState(null);
+  const route = useRoute();
+  const navigation = useNavigation();
+  const { timeStamp } = useContext(AuthContext);
+  const { bookId } = route.params;
 
-    const [showFullDescription, setShowFullDescription] = useState(false); // Estado para controlar a descrição
+  const [bookDetails, setBookDetails] = useState(null);
+  const [loanDetails, setLoanDetails] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-    const fetchBookDetails = async () => {
-        console.log('Fetching data... Timestamp:', timeStamp);
-        try {
-            const response = await fetch(`${API_BASE_URL}/books/${bookId}/loans`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            setBookDetails(data.book);
-            setLoanDetails(data.loans || []);
-            setLoading(false);
-            console.log(data)
-        } catch (err) {
-            setError('Failed to load book details');
-            setLoading(false);
-        }
-    };
+  const [currentPage, setCurrentPage] = useState('');
+  const [isLearn, setIsLearn] = useState('não lido'); // string coerente com o resto
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [selectedLoanId, setSelectedLoanId] = useState(null);
+  const [showFullDescription, setShowFullDescription] = useState(false);
 
-    useEffect(() => {
-        setLoading(true);
-        setError(null);
-        fetchBookDetails();
-    }, [timeStamp, bookId]);
+  const pendingLoans = useMemo(
+    () => loanDetails.filter((loan) => loan.status === 'Pendente'),
+    [loanDetails]
+  );
+  const isBookLoaned = pendingLoans.length > 0;
 
-    useEffect(() => {
-        console.log("Detalhes do livro carregados:", bookDetails);
+  const fetchBookDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetch(`${API_BASE_URL}/books/${bookId}/loans`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
 
-        if (bookDetails && bookDetails.status) {
-            // Ajuste o estado de 'isLearn' com base no status do livro
-            setIsLearn(bookDetails.status === 'não lido' ? 'não lido' : bookDetails.status);
-            setIsReading(bookDetails.status === 'lendo');
+      setBookDetails(data.book);
+      setLoanDetails(data.loans || []);
 
-            if (bookDetails.currentPage !== undefined && bookDetails.currentPage !== null) {
-                setCurrentPage(String(bookDetails.currentPage));
-            }
-        }
-    }, [bookDetails]);
+      const status = data.book?.status || 'não lido';
+      setIsLearn(status);
+      setCurrentPage(
+        data.book?.currentPage !== undefined && data.book?.currentPage !== null
+          ? String(data.book.currentPage)
+          : ''
+      );
+    } catch (err) {
+      setError('Falha ao carregar os detalhes do livro');
+    } finally {
+      setLoading(false);
+    }
+  }, [bookId]);
 
+  // Recarrega ao focar e quando timestamp muda (alguém alterou algo em outra tela)
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchBookDetails();
+      setShowFullDescription(false);
+    }, [fetchBookDetails])
+  );
+  useEffect(() => {
+    fetchBookDetails();
+  }, [timeStamp, fetchBookDetails]);
 
-    const handleUpdateProgress = async () => {
-        console.log('Página Atual:', currentPage);
+  const handleUpdateProgress = useCallback(async () => {
+    let parsedPage = parseInt(currentPage, 10);
+    if (isLearn === 'lendo' && (isNaN(parsedPage) || parsedPage <= 0)) {
+      alert('Por favor, insira um número válido para a página.');
+      return;
+    }
 
-        let parsedPage = parseInt(currentPage, 10);
-        if (isLearn === 'lendo' && (isNaN(parsedPage) || parsedPage <= 0)) {
-            alert('Por favor, insira um número válido para a página.');
-            return;
-        }
+    let statusToSave = isLearn;
+    let pageToSave = 0;
+    if (isLearn === 'Lido') {
+      statusToSave = 'Lido';
+      pageToSave = parsedPage > 0 ? parsedPage : 0;
+    } else if (isLearn === 'lendo') {
+      statusToSave = 'lendo';
+      pageToSave = parsedPage || 0;
+    } else {
+      statusToSave = 'não lido';
+      pageToSave = 0;
+    }
 
-        // Preparar os valores para envio
-        let statusToSave;
-        let pageToSave;
+    try {
+      const response = await fetch(`${API_BASE_URL}/books/${bookId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPage: pageToSave, status: statusToSave }),
+      });
+      if (!response.ok) throw new Error('Erro ao atualizar progresso');
 
-        if (isLearn === 'Lido') {
-            statusToSave = 'Lido';
-            pageToSave = parsedPage > 0 ? parsedPage : 0; // Use a página atual ou 0 se não for aplicável
-        } else if (isLearn === 'não lido') {
-            statusToSave = 'não lido';
-            pageToSave = 0; // Página 0 para "não lido"
-        } else if (isLearn === 'lendo') {
-            statusToSave = 'lendo';
-            pageToSave = parsedPage || 0; // Página atual ou 0
-        }
+      const updatedBook = await response.json();
+      setBookDetails(updatedBook);
+      alert('Progresso atualizado com sucesso!');
+    } catch (err) {
+      console.error('Erro ao atualizar progresso:', err);
+      alert('Erro ao atualizar progresso.');
+    }
+  }, [bookId, currentPage, isLearn]);
 
-        console.log('Atualizando Status:', statusToSave, 'Página:', pageToSave);
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/books/${bookId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    currentPage: pageToSave,
-                    status: statusToSave,
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error('Erro ao atualizar progresso');
-            }
-
-            const updatedBook = await response.json();
-            setBookDetails(updatedBook); // Atualize os detalhes do livro no estado
-            alert('Progresso atualizado com sucesso!');
-        } catch (err) {
-            console.error('Erro ao atualizar progresso:', err);
-        }
-    };
-
-
-    // Resetar a descrição para o estado reduzido quando a tela for focada
-    useFocusEffect(
-        React.useCallback(() => {
-            setShowFullDescription(false);
-        }, [])
-    );
-
-    const isBookLoaned = loanDetails.some((loan) => loan.status === 'Pendente');
-    const pendingLoans = loanDetails.filter((loan) => loan.status === 'Pendente');
-    const handleLoanOrReturn = () => {
-        if (isBookLoaned) {
-            console.log('Devolver livro');
-        } else {
-            console.log('Realizar empréstimo');
-            if (bookDetails) {
-                navigation.navigate('Loan', {
-                    bookId: bookDetails._id,
-                    title: bookDetails.title,
-                    imageUrl: bookDetails.image_url,
-                });
-            }
-        }
-    };
-
-    const handleEditPress = () => {
-        if (bookDetails) {
-            console.log("Verificação ID:" + bookDetails._id);
-            navigation.navigate('EditBooks', { bookId: bookDetails._id });
-        } else {
-            console.error('Detalhes do livro não disponíveis');
-        }
-    };
-
-    const handleReturnConfirmation = (loanId) => {
-        setSelectedLoanId(loanId);
+  const handleLoanOrReturn = useCallback(() => {
+    if (!bookDetails) return;
+    if (isBookLoaned) {
+      // mostrará modal para devolver
+      const firstPending = pendingLoans[0];
+      if (firstPending) {
+        setSelectedLoanId(firstPending._id);
         setModalVisible(true);
-    };
-
-    const handleReturn = async () => {
-        if (!selectedLoanId) return;
-        try {
-            const response = await fetch(`${API_BASE_URL}/loans/${selectedLoanId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'Devolvido' }),
-            });
-            if (!response.ok) {
-                throw new Error('Erro ao registrar devolução');
-            }
-            const updatedLoan = await response.json();
-            console.log('Devolução registrada:', updatedLoan);
-            setLoanDetails(prevLoans =>
-                prevLoans.map(loan =>
-                    loan._id === selectedLoanId ? { ...loan, status: 'Devolvido' } : loan
-                )
-            );
-            setModalVisible(false);
-        } catch (error) {
-            console.error('Erro ao registrar devolução:', error);
-        }
-    };
-
-    if (loading) {
-        return (
-            <View style={styles.loadingContainer}>
-                <LottieView
-                    source={require('../../../assets/animation3.json')}
-                    autoPlay
-                    loop
-                    style={{ width: 200, height: 200 }}
-                />
-                <Text style={styles.loadingText}>Carregando estatísticas, aguarde...</Text>
-            </View>
-        );
+      }
+    } else {
+      navigation.navigate('Loan', {
+        bookId: bookDetails._id,
+        title: bookDetails.title,
+        imageUrl: bookDetails.image_url,
+      });
     }
+  }, [bookDetails, isBookLoaned, pendingLoans, navigation]);
 
+  const handleReturn = useCallback(async () => {
+    if (!selectedLoanId) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/loans/${selectedLoanId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Devolvido' }),
+      });
+      if (!response.ok) throw new Error('Erro ao registrar devolução');
 
-    if (error) {
-        return (
-            <View style={styles.container}>
-                <Text style={{ color: 'red' }}>{error}</Text>
-            </View>
-        );
+      setLoanDetails((prev) =>
+        prev.map((loan) =>
+          loan._id === selectedLoanId ? { ...loan, status: 'Devolvido' } : loan
+        )
+      );
+      setModalVisible(false);
+    } catch (error) {
+      console.error('Erro ao registrar devolução:', error);
+      alert('Erro ao registrar devolução.');
     }
+  }, [selectedLoanId]);
 
-    if (!bookDetails) {
-        return (
-            <View style={styles.container}>
-                <Text>Livro não encontrado.</Text>
-            </View>
-        );
-    }
+  const handleEditPress = useCallback(() => {
+    if (!bookDetails) return;
+    navigation.navigate('EditBooks', { bookId: bookDetails._id });
+  }, [bookDetails, navigation]);
 
-    // Função para formatar a descrição, limitando a 200 caracteres
-    const descriptionPreview = bookDetails.description
-        ? bookDetails.description.length > 300
-            ? bookDetails.description.substring(0, 300) + '...'
-            : bookDetails.description
-        : 'Sem descrição disponível.';
-
+  if (loading) {
     return (
-        <View style={styles.container}>
-            <ScrollView contentContainerStyle={styles.scrollViewContent}>
-                <Image
-                    source={bookDetails.image_url && bookDetails.image_url.trim() !== ""
-                        ? { uri: bookDetails.image_url }
-                        : require('../../../assets/noImageAvailable.jpg')}
-                    style={styles.bookImage}
-                />
-                <Text style={styles.bookTitle}>{bookDetails.title}</Text>
-                <Text style={styles.bookAuthor}>{bookDetails.author}</Text>
-
-                {/* Exibe descrição curta ou completa dependendo do estado */}
-                <Text style={styles.bookDescription}>
-                    {showFullDescription ? bookDetails.description : descriptionPreview}
-                </Text>
-
-                {/* Botões de "Ver mais" e "Ver menos" */}
-                <Pressable onPress={() => setShowFullDescription(!showFullDescription)}>
-                    <Text style={styles.showMoreButton}>
-                        {showFullDescription ? 'Ver menos' : 'Ver mais'}
-                    </Text>
-                </Pressable>
-
-                <Text style={styles.bookGenre}>Gênero: {bookDetails.genre}</Text>
-                <Text style={styles.bookPublisher}>Editora: {bookDetails.publisher}</Text>
-
-                {pendingLoans.length > 0 && (
-                    <View style={styles.loanDetailsContainer}>
-                        <Text style={styles.loanDetailsTitle}>Detalhes do Empréstimo (Pendente)</Text>
-                        {pendingLoans.map((loan) => (
-                            <View key={loan._id}>
-                                <Text style={styles.loanDetailsText}>Solicitante: {loan.borrowerName}</Text>
-                                <Text style={styles.loanDetailsText}>Data do Empréstimo: {new Date(loan.loanDate).toLocaleDateString()}</Text>
-                                <Text style={styles.loanDetailsText}>Data de Devolução: {new Date(loan.returnDate).toLocaleDateString()}</Text>
-                                <Text style={styles.loanDetailsText}>Status: {loan.status}</Text>
-                            </View>
-                        ))}
-                    </View>
-                )}
-
-                <View style={styles.actionButtonsContainer}>
-                    <Pressable style={[styles.actionButton, styles.editButton]} onPress={handleEditPress}>
-                        <Text style={styles.actionButtonText}>Editar</Text>
-                    </Pressable>
-                    <Pressable
-                        style={[styles.actionButton, loanDetails.some((loan) => loan.status === 'Pendente') ? styles.returnButton : styles.loanButton]}
-                        onPress={handleLoanOrReturn}
-                    >
-                        {loanDetails.some((loan) => loan.status === 'Pendente') ? (
-                            loanDetails.map((loan) => {
-                                if (loan.status === 'Pendente') {
-                                    return (
-                                        <Text
-                                            key={loan._id}
-                                            style={styles.actionButtonText}
-                                            onPress={() => handleReturnConfirmation(loan._id)}
-                                        >
-                                            Devolução
-                                        </Text>
-                                    );
-                                }
-                                return null;
-                            })
-                        ) : (
-                            <Text style={styles.actionButtonText}>Emprestar</Text>
-                        )}
-                    </Pressable>
-                </View>
-
-
-                <View style={styles.switchContainer}>
-                    <Text style={styles.label}>Status de Leitura</Text>
-                    <View style={styles.radioGroup}>
-                        <RadioButton.Group
-                            onValueChange={(newValue) => {
-                                setIsLearn(newValue); // Salva o valor real selecionado no estado
-                                if (newValue === 'não lido') {
-                                    setCurrentPage(''); // Reseta a página se a opção for "Não lido"
-                                }
-                            }}
-                            value={isLearn} // O valor do botão atualmente ativo
-                        >
-                            <View style={styles.radioItem}>
-                                <RadioButton value="Lido" />
-                                <Text style={styles.radioLabel}>Lido</Text>
-                            </View>
-                            <View style={styles.radioItem}>
-                                <RadioButton value="lendo" />
-                                <Text style={styles.radioLabel}>Lendo</Text>
-                            </View>
-                            <View style={styles.radioItem}>
-                                <RadioButton value="não lido" />
-                                <Text style={styles.radioLabel}>Não lido</Text>
-                            </View>
-                        </RadioButton.Group>
-                    </View>
-
-                    {isLearn === 'lendo' && (
-                        <View style={styles.pageInputContainer}>
-                            <TextInput
-
-                                style={styles.input}
-                                placeholder="Digite a página atual"
-                                keyboardType="numeric"
-                                value={currentPage}
-                                onChangeText={(text) => {
-                                    setCurrentPage(text);
-                                    console.log('Página Atual:', text);
-                                }}
-                            />
-                        </View>
-                    )}
-
-                    <TouchableOpacity
-                        style={styles.button}
-                        onPress={handleUpdateProgress}
-                    >
-                        <Text style={styles.buttonText}>Atualizar</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
-                    <Text style={styles.backButtonText}>Voltar</Text>
-                </Pressable>
-
-                <Modal
-                    transparent={true}
-                    animationType="slide"
-                    visible={isModalVisible}
-                    onRequestClose={() => setModalVisible(false)}
-                >
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <Text style={styles.modalText}>Registrar devolução do livro?</Text>
-                            <View style={styles.modalButtons}>
-                                <Pressable
-                                    style={[styles.modalButton, styles.confirmButton]}
-                                    onPress={handleReturn}
-                                >
-                                    <Text style={styles.modalButtonText}>Sim</Text>
-                                </Pressable>
-                                <Pressable
-                                    style={[styles.modalButton, styles.cancelButton]}
-                                    onPress={() => setModalVisible(false)}
-                                >
-                                    <Text style={styles.modalButtonText}>Cancelar</Text>
-                                </Pressable>
-                            </View>
-                        </View>
-                    </View>
-                </Modal>
-            </ScrollView>
-        </View>
+      <View style={styles.loadingContainer}>
+        <LottieView
+          source={require('../../../assets/animation3.json')}
+          autoPlay
+          loop
+          style={{ width: 200, height: 200 }}
+        />
+        <Text style={styles.loadingText}>Carregando livro, aguarde…</Text>
+      </View>
     );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={[styles.root, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: COLORS.error }}>{error}</Text>
+        <TouchableOpacity style={[styles.btn, styles.secondaryBtn, { marginTop: 12 }]} onPress={fetchBookDetails}>
+          <Text style={styles.btnText}>Tentar novamente</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  if (!bookDetails) {
+    return (
+      <SafeAreaView style={[styles.root, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text>Nenhum dado do livro.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  const descriptionPreview =
+    bookDetails.description
+      ? bookDetails.description.length > 300
+        ? `${bookDetails.description.substring(0, 300)}…`
+        : bookDetails.description
+      : 'Sem descrição disponível.';
+
+  return (
+    <SafeAreaView style={styles.root}>
+      {/* AppBar */}
+      <View style={styles.hero}>
+        <View style={styles.heroRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Icon name="arrow-back" size={26} color={COLORS.text} />
+          </TouchableOpacity>
+          <Text style={styles.heroTitle}>Detalhes do Livro</Text>
+          <TouchableOpacity onPress={handleEditPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Icon name="edit" size={22} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Card: capa + título/autor */}
+        <View style={styles.card}>
+          <Image
+            source={
+              bookDetails.image_url && String(bookDetails.image_url).trim()
+                ? { uri: bookDetails.image_url }
+                : require('../../../assets/noImageAvailable.jpg')
+            }
+            style={styles.bookImage}
+          />
+          <Text style={styles.bookTitle} numberOfLines={2}>{bookDetails.title}</Text>
+          {!!bookDetails.author && (
+            <Text style={styles.bookAuthor} numberOfLines={1}>{bookDetails.author}</Text>
+          )}
+          <View style={styles.metaRow}>
+            {!!bookDetails.genre && (
+              <View style={styles.chip}>
+                <Icon name="category" size={14} color={COLORS.text} />
+                <Text style={styles.chipText} numberOfLines={1}>{bookDetails.genre}</Text>
+              </View>
+            )}
+            {!!bookDetails.publisher && (
+              <View style={styles.chip}>
+                <Icon name="apartment" size={14} color={COLORS.text} />
+                <Text style={styles.chipText} numberOfLines={1}>{bookDetails.publisher}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Card: descrição */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Descrição</Text>
+          <Text style={styles.bookDescription}>{showFullDescription ? bookDetails.description : descriptionPreview}</Text>
+          {bookDetails.description && bookDetails.description.length > 300 && (
+            <TouchableOpacity onPress={() => setShowFullDescription(!showFullDescription)} style={styles.linkBtn}>
+              <Text style={styles.linkBtnText}>{showFullDescription ? 'Ver menos' : 'Ver mais'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Card: empréstimos pendentes */}
+        {isBookLoaned && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Empréstimo (Pendente)</Text>
+            {pendingLoans.map((loan) => (
+              <View key={loan._id} style={styles.loanRow}>
+                <Icon name="person" size={16} color={COLORS.textSecondary} />
+                <Text style={styles.loanText}>Solicitante: {loan.borrowerName}</Text>
+                <Text style={styles.loanText}>Empréstimo: {new Date(loan.loanDate).toLocaleDateString()}</Text>
+                <Text style={styles.loanText}>Devolução: {new Date(loan.returnDate).toLocaleDateString()}</Text>
+                <View style={styles.badgeWarn}>
+                  <Text style={styles.badgeWarnTxt}>{loan.status}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.btn, styles.warnBtn, { marginTop: 8 }]}
+                  onPress={() => { setSelectedLoanId(loan._id); setModalVisible(true); }}
+                >
+                  <Text style={styles.btnText}>Registrar devolução</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Card: status de leitura */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Status de leitura</Text>
+          <View style={styles.radioGroup}>
+            {['Lido', 'lendo', 'não lido'].map((opt) => (
+              <View key={opt} style={styles.radioItem}>
+                <RadioButton
+                  value={opt}
+                  status={isLearn === opt ? 'checked' : 'unchecked'}
+                  onPress={() => {
+                    setIsLearn(opt);
+                    if (opt === 'não lido') setCurrentPage('');
+                  }}
+                />
+                <Text style={styles.radioLabel}>{opt[0].toUpperCase() + opt.slice(1)}</Text>
+              </View>
+            ))}
+          </View>
+
+          {isLearn === 'lendo' && (
+            <View style={{ marginTop: 6 }}>
+              <TextInput
+                style={styles.input}
+                placeholder="Digite a página atual"
+                keyboardType="numeric"
+                value={currentPage}
+                onChangeText={setCurrentPage}
+              />
+            </View>
+          )}
+
+          <TouchableOpacity style={[styles.btn, styles.secondaryBtn, { marginTop: 10 }]} onPress={handleUpdateProgress}>
+            <Text style={styles.btnText}>Atualizar progresso</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ height: 80 }} />
+      </ScrollView>
+
+      {/* FAB de ação primária (emprestar/devolução) */}
+      <TouchableOpacity style={styles.fab} onPress={handleLoanOrReturn} activeOpacity={0.9}>
+        <Icon name={isBookLoaned ? 'assignment-turned-in' : 'volunteer-activism'} size={22} color={COLORS.text} />
+        <Text style={styles.fabText}>{isBookLoaned ? 'Devolução' : 'Emprestar'}</Text>
+      </TouchableOpacity>
+
+      {/* Modal Devolução */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={isModalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirmar devolução?</Text>
+            <View style={styles.modalRow}>
+              <TouchableOpacity style={[styles.btn, styles.secondaryBtn, { flex: 1 }]} onPress={handleReturn}>
+                <Text style={styles.btnText}>Sim</Text>
+              </TouchableOpacity>
+              <View style={{ width: 10 }} />
+              <TouchableOpacity style={[styles.btn, styles.neutralBtn, { flex: 1 }]} onPress={() => setModalVisible(false)}>
+                <Text style={styles.neutralText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: 'white',
-        padding: 20,
-    },
-    scrollViewContent: {
-        paddingBottom: 20,
-    },
-    bookImage: {
-        width: '50%',
-        height: 300,
-        borderRadius: 5,
-        marginBottom: 15,
-        alignSelf: 'center',
-        resizeMode: 'cover',
-    },
-    bookTitle: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    bookAuthor: {
-        fontSize: 18,
-        color: '#555',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    bookDescription: {
-        fontSize: 16,
-        color: '#333',
-        marginBottom: 20,
-        lineHeight: 22,
-        textAlign: 'justify', // Justifica o texto
-    },
-    bookGenre: {
-        fontSize: 16,
-        color: '#333',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    bookPublisher: {
-        fontSize: 16,
-        color: '#333',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    bookVisibility: {
-        fontSize: 16,
-        color: '#333',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    loanDetailsContainer: {
-        marginTop: 20,
-        padding: 15,
-        backgroundColor: '#f1f1f1',
-        borderRadius: 10,
-    },
-    loanDetailsTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    loanDetailsText: {
-        fontSize: 16,
-        color: '#555',
-        marginBottom: 5,
-    },
-    loanDetailsSeparator: {
-        fontSize: 16,
-        color: '#555',
-        marginBottom: 5,
-        textAlign: 'justify',
-    },
-    actionButtonsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 20,
-    },
-    actionButton: {
-        padding: 10,
-        borderRadius: 5,
-        width: '30%',
-        alignItems: 'center',
-        marginRight: 10,
-    },
-    actionButtonText: {
-        color: 'white',
-        fontSize: 16,
-    },
-    editButton: {
-        backgroundColor: '#6200ee',
-    },
-    deleteButton: {
-        backgroundColor: '#f44336',
-    },
-    loanButton: {
-        backgroundColor: '#03dac6',
-    },
-    backButton: {
-        backgroundColor: '#6200ee',
-        padding: 10,
-        borderRadius: 5,
-        alignItems: 'center',
-    },
-    backButtonText: {
-        color: 'white',
-        fontSize: 16,
-    },
-    returnButton: {
-        backgroundColor: '#ff9800', // Cor diferenciada para o botão de devolver
-    },
-    modalOverlay: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0 ,0 ,0 ,0.5)'
-    },
+  root: { flex: 1, backgroundColor: COLORS.bg },
 
-    modalContent: {
-        width: '80%',
-        backgroundColor: 'white',
-        borderRadius: 10,
-        padding: 20,
-        alignItems: 'center'
-    },
+  // AppBar
+  hero: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F6E68B',
+  },
+  heroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
 
-    modalText: {
-        fontSize: 18,
-        textAlign: 'center'
-    },
+  scroll: { padding: 16 },
 
-    modalButtons: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        width: '100%'
-    },
+  // Cards
+  card: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    marginBottom: 12,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
 
-    modalButton: {
-        flex: 1,
-        padding: 10,
-        marginHorizontal: 5,
-        borderRadius: 5,
-        alignItems: 'center'
-    },
+  // Capa e textos
+  bookImage: {
+    width: '60%',
+    height: 280,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignSelf: 'center',
+    marginBottom: 12,
+    resizeMode: 'cover',
+  },
+  bookTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text, textAlign: 'center' },
+  bookAuthor: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', marginTop: 4 },
 
-    confirmButton: {
-        backgroundColor: '#4CAF50'
-    },
+  metaRow: { flexDirection: 'row', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 10 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  chipText: { color: COLORS.text, fontWeight: '700', fontSize: 12 },
 
-    cancelButton: {
-        backgroundColor: '#F44336'
-    },
-    showMoreButton: {
-        color: '#6200ee',
-        textAlign: 'center',
-        marginTop: 5,
-    },
-    bookDescription: {
-        fontSize: 16,
-        color: '#333',
-        textAlign: 'justify', // Justifica o texto
-    },
-    readingContainer: {
-        marginTop: 20,
-        padding: 15,
-        backgroundColor: '#f1f1f1',
-        borderRadius: 10
-    },
-    readingTitle: {
-        fontSize: 18,
-        ontWeight: 'bold',
-        marginBottom: 10
-    },
-    input: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        padding: 10,
-        borderRadius: 5,
-        marginBottom: 10
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 8,
-    },
-    radioGroup: {
-        flexDirection: 'row',
-        justifyContent: 'flex-start', // Para garantir que os botões fiquem alinhados à esquerda
-        marginVertical: 10,
-    },
-    radioItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginRight: 20, // Espaço entre os itens de rádio
-    },
-    radioLabel: {
-        fontSize: 14,
-        marginLeft: 8,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: "#f5f5f5",
-    },
-    loadingText: {
-        marginTop: 10,
-        fontSize: 16,
-        color: "#3F51B5",
-        textAlign: "center",
-        fontWeight: "500",
-    },
-    button: {
-        backgroundColor: '#6200ee',
-        marginBottom: 30,
-        padding: 10,
-        borderRadius: 5,
-        alignItems: 'center',
-    }, button: {
-        backgroundColor: '#6200ee',
-        marginBottom: 30,
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 5,
-        alignItems: 'center',
-    },
-    buttonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
+  // Descrição
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  bookDescription: { fontSize: 14, color: COLORS.text, lineHeight: 22, textAlign: 'justify' },
+  linkBtn: { marginTop: 6, alignSelf: 'center' },
+  linkBtnText: { color: COLORS.secondary, fontWeight: '800' },
+
+  // Empréstimo
+  loanRow: { marginTop: 4 },
+  loanText: { color: COLORS.textSecondary, fontSize: 13, marginTop: 4 },
+  badgeWarn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF1D6',
+    borderWidth: 1,
+    borderColor: '#F6C87A',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginTop: 6,
+  },
+  badgeWarnTxt: { color: '#8A5A00', fontWeight: '800', fontSize: 11 },
+
+  // Leitura
+  radioGroup: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 4 },
+  radioItem: { flexDirection: 'row', alignItems: 'center', marginRight: 16, marginBottom: 4 },
+  radioLabel: { fontSize: 13, color: COLORS.text },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    color: COLORS.text,
+  },
+
+  // Botões
+  btn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  secondaryBtn: { backgroundColor: COLORS.secondary, borderWidth: 1, borderColor: '#3B79E6' },
+  warnBtn: { backgroundColor: '#FF9800', borderWidth: 1, borderColor: '#E58D00' },
+  neutralBtn: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  btnText: { color: '#fff', fontWeight: '800' },
+  neutralText: { color: COLORS.text, fontWeight: '800' },
+
+  // FAB principal
+  fab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: '#E9CC16',
+    paddingHorizontal: 16,
+    height: 48,
+    borderRadius: 999,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  fabText: { color: COLORS.text, fontWeight: '800' },
+
+  // Loading
+  loadingContainer: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.bg,
+  },
+  loadingText: { marginTop: 10, fontSize: 16, color: COLORS.textSecondary, textAlign: 'center', fontWeight: '500' },
+
+  // Modal
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCard: {
+    width: '84%',
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text, textAlign: 'center', marginBottom: 12 },
+  modalRow: { flexDirection: 'row', marginTop: 6 },
 });
 
 export default BooksView;

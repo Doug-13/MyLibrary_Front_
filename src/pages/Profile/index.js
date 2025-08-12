@@ -1,37 +1,88 @@
-import React, { useState, useContext, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Image, Alert, TouchableOpacity } from 'react-native';
-import { TextInput, Button, Text, RadioButton, Checkbox, Switch } from 'react-native-paper';
+import React, { useState, useContext, useEffect, useRef, useCallback, memo } from 'react';
+import {
+  View,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  TouchableOpacity,
+  Text,
+  InteractionManager,
+  SafeAreaView,
+} from 'react-native';
+import { TextInput, Button } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { storage } from '../../firebase/firebase.config'; // Firebase storage configuration
-import { getStorage, ref, deleteObject, uploadBytes, getDownloadURL } from "firebase/storage";
-// import * as ImagePicker from 'expo-image-picker';
+import FastImage from 'react-native-fast-image';
 import { useForm, Controller } from 'react-hook-form';
-import colors from '../../../constants/colors';
 import { AuthContext } from '../../../context/AuthContext.js';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
-import { API_BASE_URL } from '../../config/api.js';  
+import { API_BASE_URL } from '../../config/api.js';
+import ImagePicker from 'react-native-image-crop-picker';
+import { storage } from '../../firebase/firebase.config';
+import { ref, deleteObject, uploadBytes, getDownloadURL } from 'firebase/storage';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
-const ProfileEditScreen = () => {
-  const navigation = useNavigation(); 
-  const { control, handleSubmit, setValue } = useForm();
-  const { userId, setUser, user, updateUser, setTimeStamp } = useContext(AuthContext);
+// ---------- Tema (igual ao resto do app) ----------
+const PRIMARY = '#f3d00f';
+const BG = '#F6F7FB';
+const CARD = '#FFFFFF';
+const TEXT = '#1F2937';
+const MUTED = '#6B7280';
+const BORDER = '#E5E7EB';
+
+// ---------- Subcomponentes ----------
+const Chip = memo(({ label, selected, onPress, icon }) => (
+  <TouchableOpacity
+    onPress={onPress}
+    style={[styles.chip, selected && styles.chipActive]}
+    activeOpacity={0.9}
+  >
+    {icon ? <Ionicons name={icon} size={14} color={selected ? '#111827' : MUTED} style={{ marginRight: 6 }} /> : null}
+    <Text style={[styles.chipTxt, selected && styles.chipTxtActive]}>{label}</Text>
+  </TouchableOpacity>
+));
+
+const Section = ({ title, children, right }) => (
+  <View style={styles.section}>
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {right}
+    </View>
+    {children}
+  </View>
+);
+
+export default function ProfileEditScreen() {
+  const navigation = useNavigation();
+  const { userId, user, updateUser, setTimeStamp } = useContext(AuthContext);
+  const { control, handleSubmit, setValue, formState: { errors }, watch } = useForm({
+    defaultValues: { name: '', phone: '' },
+    mode: 'onChange',
+  });
+
+  // UI/estado
   const [foto_perfil, setfoto_perfil] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
   const [dateOfBirth, setDateOfBirth] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [aboutMe, setAboutMe] = useState('');
   const [preferredGenres, setPreferredGenres] = useState([]);
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const [isWriter, setIsWriter] = useState(false);
   const [isReader, setIsReader] = useState(true);
-  const [visibility, setVisibility] = useState('public');  // Estado para controlar a visibilidade
-  const [isSaving, setIsSaving] = useState(false);
+  const [visibility, setVisibility] = useState('public');
+
+  const mounted = useRef(true);
 
   const genres = ['Ficção', 'Não-ficção', 'Aventura', 'Romance', 'Mistério', 'Fantasia'];
 
+  // ----------- Carregar dados (pós-transição pra navegação ficar suave) -----------
   useEffect(() => {
-    const fetchUserData = async () => {
+    mounted.current = true;
+    const task = InteractionManager.runAfterInteractions(async () => {
       try {
         const response = await axios.get(`${API_BASE_URL}/users/${userId}`);
         const userData = response.data;
@@ -42,273 +93,385 @@ const ProfileEditScreen = () => {
         setPreferredGenres(userData.generos_favoritos || []);
         setDateOfBirth(new Date(userData.data_nascimento || Date.now()));
         setfoto_perfil(userData.foto_perfil || null);
-
-        // Ajusta a visibilidade da biblioteca
         setVisibility(userData.visibilidade_biblioteca || 'public');
+
+        const role = userData.role || {};
+        setIsReader(!!role.isReader ?? true);
+        setIsWriter(!!role.isWriter ?? false);
       } catch (error) {
-        console.error('Erro ao carregar dados do usuário:', error);
+        Alert.alert('Erro', 'Não foi possível carregar seu perfil.');
+      } finally {
+        if (mounted.current) setLoading(false);
       }
+    });
+    return () => {
+      mounted.current = false;
+      task.cancel?.();
     };
-    fetchUserData();
-    setLoading(false);
   }, [userId, setValue]);
 
-  const handleImagePick = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images, // Correção aqui
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 1,
+  // ----------- Handlers -----------
+  const handleImagePick = useCallback(() => {
+    ImagePicker.openPicker({
+      width: 600,
+      height: 600,
+      cropping: true,
+      cropperCircleOverlay: true,
+      compressImageQuality: 0.8,
+      mediaType: 'photo',
+    })
+      .then((image) => setfoto_perfil(image.path))
+      .catch((error) => {
+        if (error?.code !== 'E_PICKER_CANCELLED') {
+          Alert.alert('Erro', 'Não foi possível selecionar a imagem');
+        }
       });
-  
-      if (!result.canceled) {
-        setfoto_perfil(result.assets[0].uri);
-        console.log('Imagem selecionada:', result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Erro ao selecionar imagem:', error);
-    }
-  };
+  }, []);
 
-  const toggleGenre = (genre) => {
+  const toggleGenre = useCallback((genre) => {
     setPreferredGenres((prev) =>
       prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
     );
-  };
+  }, []);
 
-  const onSubmit = async (data) => {
-    setIsSaving(true); // Indica que o processo de salvamento começou
-    let image_url = '';
+  // ----------- Submit -----------
+  const onSubmit = useCallback(async (data) => {
+    setIsSaving(true);
+    let image_url = user?.foto_perfil || null;
 
     try {
-      console.log('Iniciando o envio dos dados...');
-
-      // Verifica se o usuário está definido antes de acessar suas propriedades
-      if (user && user.foto_perfil) {
-        // Excluir imagem antiga se necessário
-        const oldImageRef = ref(storage, user.foto_perfil);
+      // apaga imagem antiga se for trocar
+      if (user?.foto_perfil && foto_perfil && foto_perfil !== user.foto_perfil) {
         try {
-          await deleteObject(oldImageRef);
-          console.log('Imagem antiga excluída com sucesso');
-        } catch (error) {
-          console.error('Erro ao excluir a imagem antiga:', error);
-        }
+          const oldRef = ref(storage, user.foto_perfil);
+          await deleteObject(oldRef);
+        } catch {}
       }
 
-      // Upload da nova imagem para o Firebase Storage
-      if (foto_perfil) {
-        console.log('Imagem de perfil encontrada, iniciando upload...');
-        const response = await fetch(foto_perfil);
-        const blob = await response.blob();
-        const imageRef = ref(storage, `images/users/${Date.now()}`); // Cria uma referência única para a nova imagem
-        const snapshot = await uploadBytes(imageRef, blob); // Faz o upload da imagem
-        image_url = await getDownloadURL(snapshot.ref); // Obtém a URL da nova imagem
-        console.log('Upload concluído, URL da nova imagem:', image_url);
+      // upload da nova
+      if (foto_perfil && foto_perfil !== user?.foto_perfil) {
+        const resp = await fetch(foto_perfil);
+        const blob = await resp.blob();
+        const imageRef = ref(storage, `images/users/${userId}-${Date.now()}`);
+        const snapshot = await uploadBytes(imageRef, blob);
+        image_url = await getDownloadURL(snapshot.ref);
       }
 
-      // Dados do usuário a serem atualizados
       const userData = {
-        nome_completo: data.name.trim(),
-        telefone: data.phone.trim(),
-        foto_perfil: image_url || (user ? user.foto_perfil : null), // Usa a nova URL ou mantém a antiga
+        nome_completo: (data.name || '').trim(),
+        telefone: (data.phone || '').trim(),
+        foto_perfil: image_url,
         data_nascimento: dateOfBirth.toISOString(),
-        sobremim: aboutMe.trim(),
+        sobremim: (aboutMe || '').trim(),
         generos_favoritos: preferredGenres,
         role: { isReader, isWriter },
         visibilidade_biblioteca: visibility,
       };
 
-      // Atualiza os dados do usuário no servidor
-      const response = await axios.patch(`${API_BASE_URL}/users/${userId}`, userData);
+      await axios.patch(`${API_BASE_URL}/users/${userId}`, userData);
 
-      // Atualiza o contexto com os novos dados do usuário
       updateUser(userData);
-      setTimeStamp(new Date())
+      setTimeStamp?.(new Date());
       Alert.alert('Sucesso', 'Dados atualizados com sucesso!');
       navigation.goBack();
-    } catch (error) {
-      console.error('Erro ao atualizar dados:', error.response ? error.response.data : error.message);
+    } catch (e) {
       Alert.alert('Erro', 'Houve um problema ao atualizar seus dados.');
     } finally {
-      setIsSaving(false); // Indica que o processo de salvamento foi concluído
+      setIsSaving(false);
     }
-  };
+  }, [aboutMe, dateOfBirth, foto_perfil, preferredGenres, isReader, isWriter, visibility, user?.foto_perfil, userId, updateUser, navigation, setTimeStamp]);
 
-    if (loading) {
-      return (
-        <View style={styles.loadingContainer}>
-          <LottieView
-            source={require('../../../assets/animation2.json')}
-            autoPlay
-            loop
-            style={{ width: 200, height: 200 }}
-          />
-          <Text style={styles.loadingText}>Carregando seu perfil, aguarde...</Text>
-        </View>
-      );
-    }
+  // ----------- Loading -----------
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <LottieView
+          source={require('../../../assets/animation2.json')}
+          autoPlay
+          loop
+          style={{ width: 200, height: 200 }}
+        />
+        <Text style={styles.loadingText}>Carregando seu perfil, aguarde...</Text>
+      </View>
+    );
+  }
 
-
+  // ---------- UI ----------
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <TouchableOpacity onPress={handleImagePick} style={styles.imageContainer}>
-        <Image source={foto_perfil ? { uri: foto_perfil } : require('../../../assets/perfilLendo.png')} style={styles.foto_perfil} />
-        <Text style={styles.changePhotoText}>Alterar Foto</Text>
-      </TouchableOpacity>
-
-      <Controller control={control} name="name" defaultValue="" render={({ field: { onChange, value } }) => (
-        <TextInput label="Nome Completo" mode="outlined" style={styles.input} value={value} onChangeText={onChange} />
-      )} />
-
-      <Controller control={control} name="phone" defaultValue="" render={({ field: { onChange, value } }) => (
-        <TextInput label="Telefone" mode="outlined" style={styles.input} value={value} onChangeText={onChange} keyboardType="phone-pad" />
-      )} />
-
-      <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.datePicker}>
-        <Text style={styles.dateLabel}>Data de Nascimento</Text>
-        <Text style={styles.dateValue}>{dateOfBirth.toLocaleDateString()}</Text>
-      </TouchableOpacity>
-
-      {showDatePicker && (
-        <DateTimePicker value={dateOfBirth} mode="date" display="default" onChange={(event, selectedDate) => {
-          setShowDatePicker(false);
-          if (selectedDate) setDateOfBirth(selectedDate);
-        }} />
-      )}
-
-      <Text style={styles.label}>Gêneros de Preferência:</Text>
-      <View style={styles.genreContainer}>
-        {genres.map((genre) => (
-          <View key={genre} style={styles.genreItem}>
-            <Checkbox status={preferredGenres.includes(genre) ? 'checked' : 'unchecked'} onPress={() => toggleGenre(genre)} />
-            <Text>{genre}</Text>
-          </View>
-        ))}
+    <SafeAreaView style={styles.screen}>
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Voltar">
+          <Ionicons name="chevron-back" size={22} color={TEXT} />
+        </TouchableOpacity>
+        <Text style={styles.topTitle}>Editar Perfil</Text>
+        <TouchableOpacity onPress={handleSubmit(onSubmit)} style={[styles.iconBtn, styles.saveBtn]} disabled={isSaving}>
+          <Ionicons name="checkmark" size={22} color="#111827" />
+        </TouchableOpacity>
       </View>
 
-      <TextInput label="Sobre Mim" value={aboutMe} onChangeText={setAboutMe} style={styles.input} multiline numberOfLines={4} mode="outlined" />
-
-      <Text style={styles.label}>Tipo de Perfil:</Text>
-      <View style={styles.switchContainer}>
-        <View style={styles.switchItem}>
-          <Text style={styles.switchLabel}>Leitor</Text>
-          <Switch value={isReader} onValueChange={setIsReader} />
+      <ScrollView contentContainerStyle={styles.container}>
+        {/* Avatar + editar */}
+        <View style={styles.avatarWrap}>
+          <TouchableOpacity activeOpacity={0.9} onPress={handleImagePick} style={styles.avatarBtn}>
+            <FastImage
+              source={foto_perfil ? { uri: foto_perfil, priority: FastImage.priority.normal } : require('../../../assets/perfilLendo.png')}
+              style={styles.avatar}
+              resizeMode={FastImage.resizeMode.cover}
+            />
+            <View style={styles.editBadge}>
+              <Ionicons name="camera" size={14} color="#111827" />
+            </View>
+          </TouchableOpacity>
+          <Text style={styles.changePhotoText}>Alterar foto</Text>
         </View>
-        <View style={styles.switchItem}>
-          <Text style={styles.switchLabel}>Escritor</Text>
-          <Switch value={isWriter} onValueChange={setIsWriter} />
-        </View>
 
-        <Text style={styles.label}>Visibilidade da Biblioteca:</Text>
-        <RadioButton.Group value={visibility} onValueChange={setVisibility}>
-          <View style={styles.radioButtonContainer}>
-            <RadioButton value="public" />
-            <Text>Biblioteca Pública</Text>
-          </View>
-          <View style={styles.radioButtonContainer}>
-            <RadioButton value="private" />
-            <Text>Biblioteca Privada</Text>
-          </View>
-          <View style={styles.radioButtonContainer}>
-            <RadioButton value="friends" />
-            <Text>Somente Amigos</Text>
-          </View>
-        </RadioButton.Group>
-      </View>
+        {/* Dados básicos */}
+        <Section title="Informações básicas">
+          <Controller
+            control={control}
+            name="name"
+            rules={{ required: 'Informe seu nome completo' }}
+            render={({ field: { onChange, value } }) => (
+              <TextInput
+                label="Nome completo"
+                mode="outlined"
+                value={value}
+                onChangeText={onChange}
+                style={styles.input}
+                error={!!errors.name}
+              />
+            )}
+          />
+          {errors.name && <Text style={styles.errorTxt}>{errors.name.message}</Text>}
 
-      <Button mode="contained" style={styles.saveButton} onPress={handleSubmit(onSubmit)} loading={isSaving} disabled={isSaving}>
-        {isSaving ? 'Salvando...' : 'Salvar Alterações'}
-      </Button>
-    </ScrollView>
+          <Controller
+            control={control}
+            name="phone"
+            rules={{
+              minLength: { value: 8, message: 'Telefone inválido' },
+            }}
+            render={({ field: { onChange, value } }) => (
+              <TextInput
+                label="Telefone"
+                mode="outlined"
+                keyboardType="phone-pad"
+                value={value}
+                onChangeText={onChange}
+                style={styles.input}
+                error={!!errors.phone}
+              />
+            )}
+          />
+          {errors.phone && <Text style={styles.errorTxt}>{errors.phone.message}</Text>}
+
+          {/* Data de nascimento */}
+          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateBtn} activeOpacity={0.9}>
+            <Ionicons name="calendar" size={16} color={MUTED} />
+            <Text style={styles.dateTxt}>{dateOfBirth.toLocaleDateString()}</Text>
+          </TouchableOpacity>
+
+          {showDatePicker && (
+            <DateTimePicker
+              value={dateOfBirth}
+              mode="date"
+              display="default"
+              onChange={(event, selectedDate) => {
+                setShowDatePicker(false);
+                if (selectedDate) setDateOfBirth(selectedDate);
+              }}
+            />
+          )}
+        </Section>
+
+        {/* Sobre mim */}
+        <Section title="Sobre mim">
+          <TextInput
+            label="Escreva um pouco sobre você"
+            value={aboutMe}
+            onChangeText={setAboutMe}
+            style={styles.input}
+            mode="outlined"
+            multiline
+            numberOfLines={4}
+          />
+        </Section>
+
+        {/* Gêneros favoritos */}
+        <Section
+          title="Gêneros favoritos"
+          right={<Text style={styles.helpTxt}>Toque para selecionar</Text>}
+        >
+          <View style={styles.chipsWrap}>
+            {genres.map((g) => (
+              <Chip
+                key={g}
+                label={g}
+                selected={preferredGenres.includes(g)}
+                onPress={() => toggleGenre(g)}
+                icon="pricetag"
+              />
+            ))}
+          </View>
+        </Section>
+
+        {/* Tipo de perfil */}
+        <Section title="Tipo de perfil">
+          <View style={styles.chipsWrap}>
+            <Chip
+              label="Leitor"
+              selected={isReader}
+              onPress={() => setIsReader((v) => !v)}
+              icon="book"
+            />
+            <Chip
+              label="Escritor"
+              selected={isWriter}
+              onPress={() => setIsWriter((v) => !v)}
+              icon="pencil"
+            />
+          </View>
+          <Text style={styles.helpTxt}>Você pode ser os dois 😉</Text>
+        </Section>
+
+        {/* Visibilidade da biblioteca */}
+        <Section title="Visibilidade da biblioteca">
+          <View style={styles.chipsWrap}>
+            <Chip
+              label="Pública"
+              selected={visibility === 'public'}
+              onPress={() => setVisibility('public')}
+              icon="earth"
+            />
+            <Chip
+              label="Somente amigos"
+              selected={visibility === 'friends'}
+              onPress={() => setVisibility('friends')}
+              icon="people"
+            />
+            <Chip
+              label="Privada"
+              selected={visibility === 'private'}
+              onPress={() => setVisibility('private')}
+              icon="lock-closed"
+            />
+          </View>
+        </Section>
+
+        <Button
+          mode="contained"
+          style={styles.saveButton}
+          buttonColor={PRIMARY}
+          textColor="#111827"
+          onPress={handleSubmit(onSubmit)}
+          loading={isSaving}
+          disabled={isSaving}
+        >
+          {isSaving ? 'Salvando...' : 'Salvar alterações'}
+        </Button>
+      </ScrollView>
+    </SafeAreaView>
   );
-};
+}
 
+// ---------- Estilos ----------
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    backgroundColor: colors.white,
-  },
-  imageContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  foto_perfil: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 2,
-    borderColor: colors.gray,
-  },
-  changePhotoText: {
-    textAlign: 'center',
-    color: colors.blue,
-    marginTop: 10,
-  },
-  input: {
-    marginVertical: 10,
-  },
-  datePicker: {
-    marginVertical: 10,
-  },
-  dateLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text,
-  },
-  dateValue: {
-    color: colors.text,
-    fontSize: 16,
-  },
-  label: {
-    marginVertical: 10,
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  genreContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginVertical: 10,
-  },
-  genreItem: {
+  screen: { flex: 1, backgroundColor: BG },
+
+  topBar: {
+    backgroundColor: PRIMARY,
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 20,
-  },
-  switchContainer: {
-    marginVertical: 20,
-  },
-  switchItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  switchLabel: {
-    fontSize: 16,
-    marginLeft: 10,
-  },
-  radioButtonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  saveButton: {
-    marginTop: 20,
+    paddingHorizontal: 14,
     paddingVertical: 10,
+    gap: 12,
   },
+  iconBtn: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.05)' },
+  saveBtn: { backgroundColor: '#FDE68A' },
+  topTitle: { flex: 1, textAlign: 'center', fontSize: 18, color: TEXT, fontWeight: '800' },
+
+  container: { padding: 16, paddingBottom: 28 },
+
+  avatarWrap: { alignItems: 'center', marginBottom: 12 },
+  avatarBtn: { position: 'relative' },
+  avatar: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#EEE', borderWidth: 2, borderColor: '#fff' },
+  editBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    backgroundColor: PRIMARY,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FACC15',
+  },
+  changePhotoText: { marginTop: 8, color: MUTED, fontWeight: '600' },
+
+  section: {
+    backgroundColor: CARD,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    marginBottom: 12,
+  },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: TEXT },
+  helpTxt: { color: MUTED, fontSize: 12 },
+
+  input: { marginTop: 8, backgroundColor: CARD },
+
+  dateBtn: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  dateTxt: { color: TEXT, fontWeight: '600' },
+
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+  },
+  chipActive: { backgroundColor: PRIMARY, borderColor: PRIMARY },
+  chipTxt: { color: TEXT, fontWeight: '700' },
+  chipTxtActive: { color: '#111827' },
+
+  saveButton: {
+    marginTop: 8,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+
+  errorTxt: { color: '#DC2626', marginTop: 6, fontSize: 12 },
+
   loadingContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: BG,
   },
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: "#3F51B5",
-    textAlign: "center",
-    fontWeight: "500",
+    color: TEXT,
+    textAlign: 'center',
+    fontWeight: '600',
   },
 });
-
-export default ProfileEditScreen;

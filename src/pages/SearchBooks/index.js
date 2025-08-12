@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   SafeAreaView,
   Text,
@@ -6,269 +6,383 @@ import {
   StyleSheet,
   TouchableOpacity,
   View,
-  ScrollView,
   Image,
-  Alert,
+  ActivityIndicator,
+  FlatList,
+  Keyboard,
+  TouchableWithoutFeedback,
+  RefreshControl,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
-import 'react-native-reanimated';
+
+// ===== Design System (MyLibrary App) =====
+const COLORS = {
+  primary: '#F3D00F',
+  secondary: '#4E8CFF',
+  bg: '#F8F9FA',
+  card: '#FFFFFF',
+  text: '#2D3436',
+  textSecondary: '#636E72',
+  label: '#B2BEC3',
+  border: '#E0E0E0',
+  error: '#DC3545',
+  success: '#28A745',
+};
+const RADIUS = 12;
+const ELEV = 2;
+
+const PAGE_SIZE = 18;
 
 const SearchBooks = () => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [books, setBooks] = useState([]);
-  const [isbn, setIsbn] = useState('');
   const navigation = useNavigation();
 
+  const [query, setQuery] = useState('');
+  const [books, setBooks] = useState([]);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState(null);
+
+  // limpa quando sai da tela
   useEffect(() => {
     const unsubscribe = navigation.addListener('blur', () => {
-      setSearchQuery('');
-      setIsbn('');
+      setQuery('');
       setBooks([]);
+      setPage(0);
+      setHasMore(false);
+      setError(null);
     });
-
     return unsubscribe;
   }, [navigation]);
 
-  const fetchBooks = async (query = '') => {
-    try {
-      const searchValue = query || (isbn ? isbn : searchQuery.trim());
-      if (!searchValue) {
-        Alert.alert('Erro', 'Por favor, insira um ISBN ou texto para buscar.');
-        return;
-      }
+  // ===== debounce do texto =====
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
 
-      const response = await fetch(
-        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(searchValue)}&maxResults=15`
-      );
-      const data = await response.json();
-
-      if (data.items) {
-        setBooks(data.items);
-      } else {
-        Alert.alert('Nenhum livro encontrado.');
-        setBooks([]);
-      }
-    } catch (error) {
-      console.error('Erro ao buscar livros:', error);
-      Alert.alert('Erro', 'Não foi possível buscar os livros.');
+  const toGBooksQuery = useCallback((raw) => {
+    if (!raw) return '';
+    const onlyDigits = raw.replace(/[^\dxX]/g, '');
+    // se parece ISBN 10/13, use "isbn:"
+    if (onlyDigits.length === 10 || onlyDigits.length === 13) {
+      return `isbn:${onlyDigits}`;
     }
+    return encodeURIComponent(raw);
+  }, []);
+
+  const fetchBooks = useCallback(
+    async ({ reset = false } = {}) => {
+      const q = toGBooksQuery(debounced || query);
+      if (!q) return;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const startIndex = reset ? 0 : page * PAGE_SIZE;
+        const res = await fetch(
+          `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=${PAGE_SIZE}&startIndex=${startIndex}`
+        );
+        const data = await res.json();
+
+        const items = Array.isArray(data.items) ? data.items : [];
+        setHasMore(startIndex + items.length < (data.totalItems || 0));
+
+        if (reset) {
+          setBooks(items);
+          setPage(1);
+        } else {
+          setBooks((prev) => [...prev, ...items]);
+          setPage((p) => p + 1);
+        }
+      } catch (e) {
+        console.error('Erro ao buscar livros:', e);
+        setError('Não foi possível buscar os livros.');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [debounced, query, page, toGBooksQuery]
+  );
+
+  // busca automática ao mudar o texto (debounced)
+  useEffect(() => {
+    if (!debounced) {
+      setBooks([]);
+      setHasMore(false);
+      setPage(0);
+      setError(null);
+      return;
+    }
+    fetchBooks({ reset: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced]);
+
+  const onSubmit = () => {
+    if (!query.trim()) return;
+    fetchBooks({ reset: true });
+  };
+
+  const onRefresh = () => {
+    if (!debounced) return;
+    setRefreshing(true);
+    fetchBooks({ reset: true });
   };
 
   const renderRatingStars = (rating) => {
     if (!rating) return null;
-    const fullStars = Math.floor(rating);
-    const halfStar = rating % 1 >= 0.5;
-    const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
+    const full = Math.floor(rating);
+    const half = rating % 1 >= 0.5;
+    const empty = 5 - full - (half ? 1 : 0);
     return (
       <View style={styles.ratingContainer}>
-        {[...Array(fullStars)].map((_, index) => (
-          <Icon key={`full-${index}`} name="star" size={16} color="#FFD700" />
+        {Array.from({ length: full }).map((_, i) => (
+          <Icon key={`f-${i}`} name="star" size={14} color="#FFD700" />
         ))}
-        {halfStar && <Icon key="half" name="star-half" size={16} color="#FFD700" />}
-        {[...Array(emptyStars)].map((_, index) => (
-          <Icon key={`empty-${index}`} name="star-outline" size={16} color="#FFD700" />
+        {half && <Icon name="star-half" size={14} color="#FFD700" />}
+        {Array.from({ length: empty }).map((_, i) => (
+          <Icon key={`e-${i}`} name="star-outline" size={14} color="#FFD700" />
         ))}
       </View>
     );
   };
 
-  const handleBookSelect = (book) => {
-    navigation.navigate('AddBooks', { book });
-  };
+  const BookCard = React.memo(({ item }) => {
+    const info = item.volumeInfo || {};
+    const thumb =
+      info.imageLinks?.thumbnail ||
+      info.imageLinks?.smallThumbnail ||
+      null;
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.9}
+        onPress={() => navigation.navigate('AddBooks', { book: item })}
+      >
+        <Image
+          source={thumb ? { uri: thumb } : require('../../../assets/noImageAvailable.jpg')}
+          style={styles.cover}
+        />
+        <Text style={styles.title} numberOfLines={2}>
+          {info.title || 'Título não disponível'}
+        </Text>
+        <Text style={styles.author} numberOfLines={1}>
+          {info.authors?.[0] || 'Autor não disponível'}
+        </Text>
+        {renderRatingStars(info.averageRating)}
+      </TouchableOpacity>
+    );
+  });
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.header}>Buscar Livros</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <SafeAreaView style={styles.root}>
+        {/* Header MD3 com voltar + busca */}
+        <View style={styles.hero}>
+          <View style={styles.heroRow}>
+            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Icon name="arrow-back" size={26} color={COLORS.text} />
+            </TouchableOpacity>
+            <Text style={styles.heroTitle}>Buscar Livros</Text>
+            <View style={{ width: 26 }} />
+          </View>
 
-      <View style={styles.inputContainerBoxIsbn}>
-        <View style={styles.inputContainerIsbn}>
-          <TextInput
-            style={styles.input}
-            placeholder="Digite o ISBN ou nome do livro"
-            value={isbn || searchQuery}
-            onChangeText={(text) => {
-              setIsbn('');
-              setSearchQuery(text);
-            }}
-          />
-        </View>
-        <TouchableOpacity
-          style={[styles.buttonBase, styles.searchButton]}
-          onPress={() => fetchBooks()}
-        >
-          <Text style={[styles.buttonTextBase, styles.searchButtonText]}>Buscar Livro</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.booksContainer}>
-        {books.map((book, index) => (
-          <TouchableOpacity
-            key={book.id}
-            style={[styles.bookItem, index % 3 === 0 && { marginLeft: 0 }]}
-            onPress={() => handleBookSelect(book)}
-          >
-            <Image
-              source={book.volumeInfo.imageLinks?.thumbnail
-                ? { uri: book.volumeInfo.imageLinks.thumbnail }
-                : require('../../../assets/noImageAvailable.jpg')}
-              style={styles.bookImage}
+          <View style={styles.searchWrap}>
+            <Icon name="search" size={18} color={COLORS.textSecondary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Digite o ISBN ou nome do livro"
+              placeholderTextColor={COLORS.label}
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={onSubmit}
+              returnKeyType="search"
+              autoCorrect={false}
             />
-            <Text style={styles.bookTitle}>
-              {book.volumeInfo.title?.length > 10
-                ? `${book.volumeInfo.title.substring(0, 10)}...`
-                : book.volumeInfo.title || 'Título não disponível'}
-            </Text>
+            {!!query && (
+              <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Icon name="close" size={18} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
 
-            <Text style={styles.bookAuthors}>
-              {book.volumeInfo.authors?.[0]?.length > 10
-                ? `${book.volumeInfo.authors[0].substring(0, 10)}...`
-                : book.volumeInfo.authors?.[0] || 'Autor não disponível'}
-            </Text>
-            {renderRatingStars(book.volumeInfo.averageRating)}
+        {/* Lista em grid (3 colunas) com paginação */}
+        <FlatList
+          data={books}
+          keyExtractor={(item) => String(item.id)}
+          numColumns={3}
+          renderItem={({ item }) => <BookCard item={item} />}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24, paddingTop: 8 }}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          ListEmptyComponent={
+            !loading && (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>
+                  {error ? error : 'Digite um termo ou ISBN para buscar.'}
+                </Text>
+              </View>
+            )
+          }
+          ListFooterComponent={
+            <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+              {loading && <ActivityIndicator color={COLORS.secondary} />}
+              {!loading && hasMore && (
+                <TouchableOpacity
+                  onPress={() => fetchBooks()}
+                  style={[styles.moreBtn, styles.secondaryButton]}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.moreBtnText}>Carregar mais</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          }
+          onEndReachedThreshold={0.4}
+          onEndReached={() => {
+            if (!loading && hasMore) fetchBooks();
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.primary}
+              colors={[COLORS.primary]}
+            />
+          }
+          // Perf
+          initialNumToRender={12}
+          windowSize={7}
+          maxToRenderPerBatch={12}
+          updateCellsBatchingPeriod={40}
+          removeClippedSubviews
+        />
+
+        {/* CTA manual */}
+        {books.length > 0 && !loading && (
+          <TouchableOpacity
+            style={[styles.fab]}
+            onPress={() => navigation.navigate('EditBooks')}
+            activeOpacity={0.9}
+          >
+            <Icon name="library-add" size={24} color={COLORS.text} />
           </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {books.length > 0 && (
-        <TouchableOpacity
-          style={[styles.buttonBase, styles.addBookButton]}
-          onPress={() => navigation.navigate('EditBooks')}
-        >
-          <Text style={[styles.buttonTextBase, styles.addBookButtonText]}>Adicionar Livro Manualmente</Text>
-        </TouchableOpacity>
-      )}
-    </SafeAreaView>
+        )}
+      </SafeAreaView>
+    </TouchableWithoutFeedback>
   );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 20,
-        backgroundColor: '#fff',
-    },
-    header: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        marginBottom: 16,
-        textAlign: 'center',
-    },
-    inputContainerBoxIsbn: {
-        marginBottom: 20,
-    },
-    inputContainerIsbn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        padding: 10,
-        borderRadius: 8,
-    },
-    input: {
-        flex: 1,
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 8,
-        padding: 10,
-        marginBottom: 8,
-    },
-    iconButton: {
-        padding: 5,
-    },
-    booksContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-    },
-    bookItem: {
-        width: '30%',
-        marginBottom: 16,
-        padding: 10,
-        backgroundColor: '#f9f9f9',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#ddd',
-        alignItems: 'center',
-    },
-    bookImage: {
-        width: 80,
-        height: 120,
-        marginBottom: 10,
-    },
-    bookTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        textAlign: 'center',
-    },
-    bookAuthors: {
-        fontSize: 12,
-        color: '#555',
-        textAlign: 'center',
-    },
-    ratingContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginTop: 5,
-    },
-    cameraContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#000',
-    },
-    overlay: {
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: [{ translateX: -50 }, { translateY: -50 }],
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        padding: 20,
-        borderRadius: 10,
-    },
-    overlayText: {
-        color: '#fff',
-        textAlign: 'center',
-    },
-    cancelButton: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        width: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        padding: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    cancelButtonText: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    buttonBase: {
-        backgroundColor: '#007BFF', // Azul como padrão
-        padding: 5,
-        borderRadius: 8,
-        margin: 10,
-        alignItems: 'center',
-    },
-    buttonTextBase: {
-        color: '#fff', // Texto branco
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    codeList: {
-        position: "absolute",
-        bottom: 50,
-        left: 20,
-        right: 20,
-        backgroundColor: "rgba(0,0,0,0.5)",
-        padding: 10,
-        borderRadius: 8,
-    },
-    codeText: {
-        color: "#fff",
-        fontSize: 16,
-    },
+  root: { flex: 1, backgroundColor: COLORS.bg },
+
+  // HERO
+  hero: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F6E68B',
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+
+  // Busca “pill”
+  searchWrap: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  searchInput: { flex: 1, color: COLORS.text, paddingVertical: 0, fontSize: 14 },
+
+  // Grid
+  row: { justifyContent: 'space-between' },
+  card: {
+    flex: 1 / 3,
+    marginHorizontal: 4,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 8,
+    alignItems: 'center',
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  cover: {
+    width: 90,
+    height: 135,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 8,
+  },
+  title: { fontSize: 13, fontWeight: '700', color: COLORS.text, textAlign: 'center' },
+  author: { fontSize: 11, color: COLORS.textSecondary, textAlign: 'center', marginTop: 2 },
+
+  ratingContainer: { flexDirection: 'row', marginTop: 4 },
+
+  // Footer / Empty
+  emptyWrap: { alignItems: 'center', marginTop: 32, paddingHorizontal: 24 },
+  emptyText: { color: COLORS.textSecondary, textAlign: 'center' },
+
+  moreBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  secondaryButton: {
+    backgroundColor: COLORS.secondary,
+    borderWidth: 1,
+    borderColor: '#3B79E6',
+  },
+  moreBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E9CC16',
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
 });
 
 export default SearchBooks;

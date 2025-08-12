@@ -1,65 +1,47 @@
+// src/pages/OnboardingScreens/index.js
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions } from 'react-native';
 import GestureRecognizer from 'react-native-swipe-gestures';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
-const OnboardingScreens = ({ navigation }) => {
+const OnboardingScreens = () => {
+  const navigation = useNavigation();
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const screens = [
-    {
-      id: 1,
-      title: 'Bem-vindo ao Bibliotech!',
-      description: 'Descubra um novo jeito de explorar livros e compartilhar sua paixão por leitura com amigos.',
-      image: require('../../../assets/2.png'),
-    },
-    {
-      id: 2,
-      title: 'Explore bibliotecas únicas',
-      description: 'Acesse as estantes virtuais dos seus amigos e descubra livros incríveis para ler.',
-      image: require('../../../assets/4.png'),
-    },
-    {
-      id: 3,
-      title: 'Compartilhe livros',
-      description: 'Adicione sua biblioteca e compartilhe suas leituras favoritas com seus amigos.',
-      image: require('../../../assets/6.png'),
-    },
-    {
-      id: 4,
-      title: 'Organize suas leituras',
-      description: 'Mantenha controle sobre os livros que leu, deseja ler e está lendo atualmente.',
-      image: require('../../../assets/8.png'),
-    }
+    { id: 1, title: 'Bem-vindo ao Bibliotech!', description: 'Descubra um novo jeito de explorar livros e compartilhar sua paixão por leitura com amigos.', image: require('../../../assets/2.png') },
+    { id: 2, title: 'Explore bibliotecas únicas', description: 'Acesse as estantes virtuais dos seus amigos e descubra livros incríveis para ler.', image: require('../../../assets/4.png') },
+    { id: 3, title: 'Compartilhe livros', description: 'Adicione sua biblioteca e compartilhe suas leituras favoritas com seus amigos.', image: require('../../../assets/6.png') },
+    { id: 4, title: 'Organize suas leituras', description: 'Mantenha controle sobre os livros que leu, deseja ler e está lendo atualmente.', image: require('../../../assets/8.png') },
   ];
 
   const handleSwipeLeft = () => {
-    if (currentIndex < screens.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    }
+    if (currentIndex < screens.length - 1) setCurrentIndex(i => i + 1);
   };
 
   const handleSwipeRight = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    }
+    if (currentIndex > 0) setCurrentIndex(i => i - 1);
   };
 
   const handleStart = () => {
-    if (navigation && typeof navigation.replace === 'function') {
-      navigation.replace('Login');
-    } else {
-      console.log('Erro na navegação');
+    try {
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        })
+      );
+      // alternativa simples:
+      // navigation.replace('Login');
+    } catch (e) {
+      console.log('Erro na navegação', e);
     }
   };
 
   return (
-    <GestureRecognizer
-      style={styles.container}
-      onSwipeLeft={handleSwipeLeft}
-      onSwipeRight={handleSwipeRight}
-    >
+    <GestureRecognizer style={styles.container} onSwipeLeft={handleSwipeLeft} onSwipeRight={handleSwipeRight}>
       <View style={styles.content}>
         <Image source={screens[currentIndex].image} style={styles.image} />
         <View style={styles.textOverlay}>
@@ -67,18 +49,14 @@ const OnboardingScreens = ({ navigation }) => {
           <Text style={styles.description}>{screens[currentIndex].description}</Text>
         </View>
       </View>
+
       <View style={styles.footer}>
         <View style={styles.pagination}>
           {screens.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.dot,
-                currentIndex === index ? styles.activeDot : styles.inactiveDot,
-              ]}
-            />
+            <View key={index} style={[styles.dot, currentIndex === index ? styles.activeDot : styles.inactiveDot]} />
           ))}
         </View>
+
         {currentIndex === screens.length - 1 ? (
           <TouchableOpacity style={styles.button} onPress={handleStart}>
             <Text style={styles.buttonText}>Começar</Text>
@@ -92,6 +70,7 @@ const OnboardingScreens = ({ navigation }) => {
     </GestureRecognizer>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {

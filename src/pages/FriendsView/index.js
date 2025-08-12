@@ -1,537 +1,453 @@
-import React, { useEffect, useState, useContext } from 'react';
-import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
+import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
+  FlatList,
+} from 'react-native';
 import { Card } from 'react-native-paper';
 import { AuthContext } from '../../../context/AuthContext.js';
 import { useNavigation } from '@react-navigation/native';
-import { TabView, SceneMap, TabBar } from 'react-native-tab-view';
+import { TabView, TabBar } from 'react-native-tab-view';
 import FollowButton from '../../components/FolowButton.js';
-import { KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import LottieView from 'lottie-react-native';
 import { API_BASE_URL } from '../../config/api.js';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 
+// ===== Design System (MyLibrary App) =====
+const COLORS = {
+  primary: '#F3D00F',
+  secondary: '#4E8CFF',
+  bg: '#F8F9FA',
+  card: '#FFFFFF',
+  text: '#2D3436',
+  textSecondary: '#636E72',
+  label: '#B2BEC3',
+  border: '#E0E0E0',
+  error: '#DC3545',
+  success: '#28A745',
+};
+
+const RADIUS = 12;
+const ELEV = 2;
 
 const FriendsView = () => {
-  const [userData, setUserData] = useState(null);
   const [friends, setFriends] = useState([]);
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
-  const [filteredFriends, setFilteredFriends] = useState([]); // Estado para amigos filtrados
-  const [filteredFollowers, setFilteredFollowers] = useState([]); // Estado para seguidores filtrados
-  const [filteredFollowing, setFilteredFollowing] = useState([]); // Estado para seguindo filtrados
-  const [databaseResults, setDatabaseResults] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  const [filteredFriends, setFilteredFriends] = useState([]);
+  const [filteredFollowers, setFilteredFollowers] = useState([]);
+  const [filteredFollowing, setFilteredFollowing] = useState([]);
+
   const [searchText, setSearchText] = useState('');
   const [index, setIndex] = useState(0);
+
+  const [counts, setCounts] = useState({ friends: 0, followers: 0, following: 0 });
+
   const { userMongoId, timeStamp } = useContext(AuthContext);
   const navigation = useNavigation();
 
-  const [routes, setRoutes] = useState([
-    { key: 'friends', title: `Amigos (0)` },
-    { key: 'followers', title: `Seguidores (0)` },
-    { key: 'following', title: `Seguindo (0)` },
+  // Rotas ESTÁTICAS (títulos não mudam)
+  const [routes] = useState([
+    { key: 'friends', title: 'Amigos' },
+    { key: 'followers', title: 'Seguidores' },
+    { key: 'following', title: 'Seguindo' },
   ]);
-
-  // Função utilitária para buscar dados
-  const fetchData = async (endpoint) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/${endpoint}`);
-      return response.json();
-    } catch (error) {
-      console.error(`Error fetching ${endpoint}:`, error.message);
-      return [];
-    }
-  };
-  useEffect(() => {
-    console.log('Iniciando fetchAllData');
-    const fetchAllData = async () => {
-      try {
-        const userResponse = await fetchData(`users/${userMongoId}/friends`);
-        console.log('userResponse:', userResponse);
-        setUserData(userResponse.user);
-
-        const followersData = await fetchData(`connections/${userMongoId}/followers`);
-        console.log('followersData:', followersData);
-
-        const followingData = await fetchData(`connections/${userMongoId}/following`);
-        console.log('followingData:', followingData);
-
-        setFollowers(followersData);
-        setFollowing(followingData);
-
-        const friendsData = followersData.filter((follower) =>
-          followingData.some((following) => following.following._id === follower.follower._id)
-        );
-        console.log('friendsData:', friendsData);
-        setFriends(friendsData);
-
-        setRoutes([
-          { key: 'friends', title: `Amigos (${friendsData.length})` },
-          { key: 'followers', title: `Seguidores (${followersData.length})` },
-          { key: 'following', title: `Seguindo (${followingData.length})` },
-        ]);
-      } catch (error) {
-        console.error('Error fetching data:', error.message);
-      }
-    };
-
-    fetchAllData();
-  }, [timeStamp, userMongoId]);
-
-  useEffect(() => {
-    searchDatabase(searchText); // Sempre buscar dados ao alterar o texto
-  }, [searchText]);
-
-
-  // Filtrar dados com base no texto de busca
-  useEffect(() => {
-    if (searchText.length > 3) {
-      searchDatabase(searchText); // Buscar no banco de dados com o texto de pesquisa
-    } else {
-      setDatabaseResults([]); // Limpar resultados se a pesquisa for menor que 4 caracteres
-    }
-
-    // Filtragem dos dados locais (amigos, seguidores, seguidos) com base no texto de pesquisa
-    const searchLower = searchText.toLowerCase();
-
-    // Filtra amigos
-    setFilteredFriends(
-      friends.filter((friend) =>
-        friend?.follower?.nome_completo?.toLowerCase().includes(searchLower)
-      )
-    );
-
-    // Filtra seguidores
-    setFilteredFollowers(
-      followers.filter((follower) =>
-        follower?.follower?.nome_completo?.toLowerCase().includes(searchLower)
-      )
-    );
-
-    // Filtra seguidos
-    setFilteredFollowing(
-      following.filter((followed) =>
-        followed?.following?.nome_completo?.toLowerCase().includes(searchLower)
-      )
-    );
-  }, [searchText, friends, followers, following]);
-
-  // Busca no banco de dados e aplica a filtragem diretamente nos resultados
-  const searchDatabase = async (query) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/users/${userMongoId}/first30-with-follow-status?query=${query}`);
-      const data = await response.json();
-
-      // Filtrando os dados recebidos do banco com base na pesquisa
-      const filteredData = data.filter((user) =>
-        user.nome_completo.toLowerCase().includes(query.toLowerCase())
-      );
-
-      setDatabaseResults(filteredData); // Atualiza o estado com os dados filtrados do banco
-    } catch (error) {
-      console.error('Erro ao buscar usuários no banco:', error.message);
-    }
-  };
-
-
-  // Exibição dos resultados da pesquisa
-  // Exibição dos resultados da pesquisa
-  const renderDatabaseResults = () => (
-    <ScrollView>
-      {databaseResults.length > 0 ? (
-        databaseResults.map((user) => (
-          <TouchableOpacity
-            key={user._id}
-            onPress={() => navigation.navigate('FriendsProfile', { friendId: user._id })}
-          >
-            <Card style={styles.friendCard}>
-              <View style={styles.friendInfo}>
-                <Image source={{ uri: user.foto_perfil }} style={styles.friendImage} />
-                <View style={styles.friendDetails}>
-                  <Text style={styles.friendName}>{user.nome_completo}</Text>
-                  <Text style={styles.friendEmail}>{user.email}</Text>
-                  <Text
-                    style={[
-                      styles.friendVisibility,
-                      user.visibilidade_biblioteca === 'public'
-                        ? styles.publicLibrary
-                        : user.visibilidade_biblioteca === 'private'
-                          ? styles.privateLibrary
-                          : styles.friendsLibrary,
-                    ]}
-                  >
-                    {
-                      user.visibilidade_biblioteca === 'public'
-                        ? 'Aberto ao Público'
-                        : user.visibilidade_biblioteca === 'private'
-                          ? 'Esta biblioteca é privada.'
-                          : 'Visível para amigos'
-                    }
-                  </Text>
-                </View>
-                <View>
-                  <FollowButton
-                    userId={user._id}
-                    currentUserId={userMongoId} // ID do usuário logado
-                  />
-                </View>
-              </View>
-            </Card>
-          </TouchableOpacity>
-        ))
-      ) : (
-        <Text style={styles.noDataText}>Nenhum usuário encontrado.</Text>
-      )}
-    </ScrollView>
-  );
-
-
-  // const filteredFriends = friends.filter((friend) =>
-  //   friend?.follower?.nome_completo?.toLowerCase().includes(searchText.toLowerCase())
-  // );
-
-  // const filteredFollowers = followers.filter((follower) =>
-  //   follower?.follower?.nome_completo?.toLowerCase().includes(searchText.toLowerCase())
-  // );
-
-  // const filteredFollowing = following.filter((followed) =>
-  //   followed?.following?.nome_completo?.toLowerCase().includes(searchText.toLowerCase())
-  // );
 
   const handleAddBook = () => navigation.navigate('SearchFriends');
 
-  const renderList = (data, type) => (
-    <ScrollView>
-      {data.length > 0 ? (
-        data.map((item) => {
-          const userData = type === 'friends' ? item?.follower : item?.[type];
-          if (!userData) return null;
+  // Helpers
+  const removeDuplicatesById = useCallback((arr, keyPath) => {
+    const seen = new Set();
+    return arr.filter((item) => {
+      const id = keyPath.split('.').reduce((obj, key) => obj?.[key], item);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, []);
 
-          const isPublic = userData.visibilidade_biblioteca === 'public';
+  // Fetch
+  const fetchData = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/connections/${userMongoId}/followers-with-status`
+      );
+      const data = await response.json();
 
-          return (
-            <TouchableOpacity
-              key={userData._id}
-              onPress={() => {
-                if (userData.visibilidade_biblioteca === 'private') {
-                  // Exibe a mensagem de que a biblioteca é privada
-                  alert("Esta biblioteca é privada, não é possível acessar seus livros.");
-                } else {
-                  navigation.navigate('FriendsProfile', { friendId: userData._id });
-                }
-              }}
-            >
-              <Card style={styles.friendCard}>
-                <View style={styles.friendInfo}>
-                  <Image source={{ uri: userData.foto_perfil }} style={styles.friendImage} />
-                  <View style={styles.friendDetails}>
-                    <Text style={styles.friendName}>{userData.nome_completo}</Text>
-                    <Text style={styles.friendEmail}>{userData.email}</Text>
-                    <Text
-                      style={[
-                        styles.friendVisibility,
-                        userData.visibilidade_biblioteca === 'public' ? styles.publicLibrary :
-                          userData.visibilidade_biblioteca === 'private' ? styles.privateLibrary :
-                            styles.friendsLibrary
-                      ]}
-                    >
-                      {
-                        userData.visibilidade_biblioteca === 'public'
-                          ? 'Aberto ao Público'
-                          : userData.visibilidade_biblioteca === 'private'
-                            ? 'Esta biblioteca é privada.'
-                            : 'Visível para amigos'
-                      }
-                    </Text>
-                  </View>
-                  {/* Botão de seguir */}
-                  <View >
-                    <FollowButton
-                      userId={userData._id}
-                      currentUserId={userMongoId} // ID do usuário logado
-                    />
-                  </View>
-                </View>
-              </Card>
-            </TouchableOpacity>
-          );
-        })
-      ) : (
-        <Text style={styles.noDataText}>
-          {type === 'friends'
-            ? 'Você ainda não tem amigos.'
-            : type === 'followers'
-              ? 'Você ainda não tem seguidores.'
-              : 'Você ainda não está seguindo ninguém.'}
-        </Text>
-      )}
-    </ScrollView>
-  );
+      const followersData = data.filter((item) => item.user?.isFollowedByMe);
+      const followingData = data.filter((item) => item.user?.isFollowing);
+      const friendsData = data.filter(
+        (item) => item.user?.isFollowedByMe && item.user?.isFollowing
+      );
 
-  const renderScene = ({ route }) => {
-    switch (route.key) {
-      case 'friends':
-        return renderList(filteredFriends, 'friends');
-      case 'followers':
-        return renderList(filteredFollowers, 'follower');
-      case 'following':
-        return renderList(filteredFollowing, 'following');
-      default:
-        return null;
+      setFollowers(followersData);
+      setFollowing(followingData);
+      setFriends(friendsData);
+
+      // Atualiza APENAS as contagens (rótulos continuam estáticos)
+      setCounts({
+        friends: friendsData.length,
+        followers: followersData.length,
+        following: followingData.length,
+      });
+    } catch (error) {
+      console.error('Erro ao buscar dados:', error?.message);
     }
-  };
+  }, [userMongoId]);
 
-  const renderTabBar = (props) => (
-    <TabView
-      navigationState={{ index, routes }}
-      renderScene={renderScene}
-      onIndexChange={setIndex}
-      renderTabBar={renderTabBar}
-    />
+  useEffect(() => {
+    fetchData();
+  }, [fetchData, timeStamp]);
+
+  // Search filter
+  useEffect(() => {
+    const q = searchText.trim().toLowerCase();
+    const norm = (s) => (s || '').toLowerCase();
+
+    setFilteredFollowers(
+      followers.filter((f) => norm(f.user?.nome_completo).includes(q))
+    );
+    setFilteredFollowing(
+      following.filter((f) => norm(f.user?.nome_completo).includes(q))
+    );
+    setFilteredFriends(
+      friends.filter((f) => norm(f.user?.nome_completo).includes(q))
+    );
+  }, [searchText, followers, following, friends]);
+
+  // Render item
+  const renderUserCard = useCallback(
+    ({ item, type }) => {
+      const u = item?.user;
+      if (!u) return null;
+
+      const canOpen = u.visibilidade_biblioteca !== 'private';
+
+      const onPress = () => {
+        if (!canOpen) {
+          alert('Esta biblioteca é privada, não é possível acessar seus livros.');
+          return;
+        }
+        navigation.navigate('FriendsProfile', { friendId: u._id });
+      };
+
+      const visibilityStyle =
+        u.visibilidade_biblioteca === 'public'
+          ? styles.publicLibrary
+          : u.visibilidade_biblioteca === 'private'
+          ? styles.privateLibrary
+          : styles.friendsLibrary;
+
+      return (
+        <TouchableOpacity onPress={onPress} activeOpacity={0.9}>
+          <Card style={styles.friendCard}>
+            <View style={styles.friendInfo}>
+              <View style={styles.avatarWrap}>
+                <Image
+                  source={
+                    u.foto_perfil
+                      ? { uri: u.foto_perfil }
+                      : require('../../../assets/logo_Preto.png')
+                  }
+                  style={styles.friendImage}
+                />
+              </View>
+
+              <View style={styles.friendDetails}>
+                <Text style={styles.friendName} numberOfLines={1}>
+                  {u.nome_completo || 'Usuário'}
+                </Text>
+                {!!u.email && (
+                  <Text style={styles.friendEmail} numberOfLines={1}>
+                    {u.email}
+                  </Text>
+                )}
+                <Text style={[styles.friendVisibility, visibilityStyle]} numberOfLines={1}>
+                  {u.visibilidade_biblioteca === 'public'
+                    ? 'Aberto ao Público'
+                    : u.visibilidade_biblioteca === 'private'
+                    ? 'Esta biblioteca é privada.'
+                    : 'Visível para amigos'}
+                </Text>
+              </View>
+
+              <FollowButton userId={u._id} currentUserId={userMongoId} />
+            </View>
+          </Card>
+        </TouchableOpacity>
+      );
+    },
+    [navigation, userMongoId]
   );
 
-  // if (loading) {
-  //   return (
-  //     <View style={styles.loadingContainer}>
-  //       <LottieView
-  //         source={require('../../../assets/animation3.json')}
-  //         autoPlay
-  //         loop
-  //         style={{ width: 200, height: 200 }}
-  //       />
-  //       <Text style={styles.loadingText}>Carregando sua biblioteca, aguarde...</Text>
-  //     </View>
-  //   );
-  // }
+  // Lista (FlatList para performance)
+  const renderList = useCallback(
+    (data, type) => {
+      const uniqueData = removeDuplicatesById(data, 'user._id');
 
-  if (!userData) {
-    return (
-      <View style={styles.loadingContainer}>
-        <LottieView
-          source={require('../../../assets/animation3.json')}
-          autoPlay
-          loop
-          style={{ width: 200, height: 200 }}
-        />
-        <Text>Carregando dados do usuário...</Text>
-      </View>
-    );
-  }
+      if (uniqueData.length === 0) {
+        return (
+          <View style={styles.emptyWrap}>
+            <LottieView
+              source={require('../../../assets/animation2.json')}
+              autoPlay
+              loop
+              style={{ width: 140, height: 140 }}
+            />
+            <Text style={styles.emptyText}>
+              {type === 'friends'
+                ? 'Você ainda não tem amigos.'
+                : type === 'followers'
+                ? 'Você ainda não tem seguidores.'
+                : 'Você ainda não está seguindo ninguém.'}
+            </Text>
+          </View>
+        );
+      }
+
+      return (
+        <SafeAreaView style={{ flex: 1 }}>
+          <FlatList
+            data={uniqueData}
+            keyExtractor={(it) => `${type}-${it?.user?._id}`}
+            contentContainerStyle={{ paddingBottom: 120, paddingHorizontal: 12, paddingTop: 8 }}
+            renderItem={({ item }) => renderUserCard({ item, type })}
+            showsVerticalScrollIndicator={false}
+          />
+        </SafeAreaView>
+      );
+    },
+    [removeDuplicatesById, renderUserCard]
+  );
+
+  const renderScene = useCallback(
+    ({ route }) => {
+      switch (route.key) {
+        case 'friends':
+          return renderList(filteredFriends, 'friends');
+        case 'followers':
+          return renderList(filteredFollowers, 'followers');
+        case 'following':
+          return renderList(filteredFollowing, 'following');
+        default:
+          return null;
+      }
+    },
+    [filteredFriends, filteredFollowers, filteredFollowing, renderList]
+  );
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: COLORS.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={{ flex: 1 }}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="🔍 Pesquise pelo nome..."
-            value={searchText}
-            onChangeText={setSearchText}
-          />
-          <TouchableOpacity style={styles.addButton} onPress={handleAddBook}>
-            <Text style={styles.addButtonText}>🔍</Text>
+          {/* Search */}
+          <View style={styles.searchWrap}>
+            <Icon name="search" size={18} color={COLORS.textSecondary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Pesquise pelo nome..."
+              placeholderTextColor={COLORS.label}
+              value={searchText}
+              onChangeText={setSearchText}
+              returnKeyType="search"
+            />
+            {!!searchText && (
+              <TouchableOpacity
+                onPress={() => setSearchText('')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon name="close" size={18} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* FAB (vai para SearchFriends) */}
+          <TouchableOpacity style={styles.fab} onPress={handleAddBook} activeOpacity={0.9}>
+            <Icon name="person-add-alt-1" size={24} color={COLORS.text} />
           </TouchableOpacity>
+
+          {/* Tabs */}
           <TabView
             navigationState={{ index, routes }}
-            renderScene={SceneMap({
-              friends: () => renderList(filteredFriends, 'friends'),
-              followers: () => renderList(filteredFollowers, 'follower'),
-              following: () => renderList(filteredFollowing, 'following'),
-            })}
+            renderScene={renderScene}
             onIndexChange={setIndex}
             renderTabBar={(props) => (
               <TabBar
                 {...props}
+                scrollEnabled={false}
                 style={styles.tabBar}
                 indicatorStyle={styles.indicator}
-                labelStyle={styles.tabLabel}
-                activeColor="#000"
-                inactiveColor="#000"
+                tabStyle={styles.tabStyle}
+                inactiveColor={COLORS.textSecondary}
+                activeColor={COLORS.text}
+                pressColor="transparent"
+                renderLabel={({ route, focused }) => (
+                  <View style={styles.tabLabelWrap}>
+                    <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>
+                      {route.title}
+                    </Text>
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{counts[route.key] ?? 0}</Text>
+                    </View>
+                  </View>
+                )}
               />
             )}
           />
-          {searchText.length > 3 && (
-            <>
-              <Text style={styles.suggestionsTitle}>Sugestões para você</Text>
-              {renderDatabaseResults()}
-            </>
-          )}
         </View>
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-  },
-  profileSection: {
-    alignItems: 'center',
-    marginBottom: 5,
-    marginTop: 15
-  },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 10,
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  userBio: {
-    fontSize: 16,
-    fontStyle: 'italic',
-    color: '#666',
-    textAlign: 'center',
-  },
-  friendCard: {
-    marginBottom: 10,
-    padding: 10,
-  },
-  friendInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  friendImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 10,
-  },
-  friendDetails: {
-    flex: 1,
-  },
-  friendName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  friendEmail: {
-    fontSize: 14,
-    color: '#666',
-  },
-  noDataText: {
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: 10,
-    right: 20,
-    backgroundColor: '#f3d00f',
-    borderRadius: 30,
-    width: 60,
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
-  },
-  addButtonText: {
-    color: '#333',
-    fontSize: 24,
-  },
-  buttonContainer: {
-    marginTop: 10,
-    width: '80%',
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-  },
+const AVATAR = 50;
 
-  button: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    elevation: 3, // For Android shadow
-    shadowColor: '#000', // For iOS shadow
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 2.5,
+const styles = StyleSheet.create({
+  // Search
+  searchWrap: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  tabView: {
-    marginTop: 20,
-  },
-  tabBar: {
-    backgroundColor: '#f3d00f', // Cor amarela para a barra
-  },
-  tabLabel: {
-    fontWeight: 'bold', // Para garantir destaque na fonte
-  },
-  indicator: {
-    backgroundColor: '#000', // Cor preta para o indicador
+    gap: 8,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
   searchInput: {
-    height: 40,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    margin: 10,
-    paddingHorizontal: 10,
-    borderRadius: 5,
-  },
-  navigationButton: {
-    margin: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    backgroundColor: '#f3d00f', // Cor amarela
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  navigationButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000', // Cor preta para o texto
-  },
-  friendVisibility: {
-    fontSize: 14,
-    color: '#888',
-    marginTop: 5,
-  },
-  publicLibrary: {
-    color: '#4CAF50', // Verde para público
-    fontStyle: 'italic',
-  },
-  privateLibrary: {
-    color: '#F44336', // Vermelho para privado
-    fontStyle: 'italic',
-  },
-  friendsLibrary: {
-    color: '#FF9800', // Laranja para amigos
-    fontStyle: 'italic',
-  },
-  suggestionsTitle: {
-    fontSize: 18, // Tamanho da fonte para o título
-    fontWeight: 'bold', // Deixar o título em negrito
-    color: '#333', // Cor do texto (preto suave)
-    marginBottom: 10, // Espaçamento abaixo do título
-    textAlign: 'center', // Centralizar o título
-  },
-  loadingContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
+    color: COLORS.text,
+    paddingVertical: 0,
+    fontSize: 14,
   },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#3F51B5",
-    textAlign: "center",
-    fontWeight: "500",
+
+  // TabBar
+  tabBar: {
+    backgroundColor: COLORS.primary,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F6E68B',
+    elevation: 0,
+  },
+  tabStyle: {
+    flex: 1, // cada aba ocupa espaço igual
+  },
+  tabLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabLabel: {
+    fontWeight: '800',
+    textTransform: 'none',
+    fontSize: 13,
+    letterSpacing: 0.2,
+    color: COLORS.text,
+  },
+  tabLabelActive: {
+    color: COLORS.text,
+  },
+  indicator: {
+    backgroundColor: '#111827',
+    height: 3,
+    borderRadius: 3,
+    marginHorizontal: 16,
+  },
+  badge: {
+    minWidth: 26, // largura fixa evita “pulos”
+    height: 18,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  // Cards de usuário
+  friendCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  friendInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatarWrap: {
+    width: AVATAR,
+    height: AVATAR,
+    borderRadius: AVATAR / 2,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    backgroundColor: '#F1F5F9',
+    overflow: 'hidden',
+  },
+  friendImage: { width: '100%', height: '100%' },
+  friendDetails: { flex: 1 },
+  friendName: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+  friendEmail: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+
+  friendVisibility: { fontSize: 12, marginTop: 6 },
+  publicLibrary: { color: COLORS.success, fontStyle: 'italic' },
+  privateLibrary: { color: COLORS.error, fontStyle: 'italic' },
+  friendsLibrary: { color: '#FF9800', fontStyle: 'italic' },
+
+  // Empty
+  emptyWrap: { alignItems: 'center', marginTop: 40, paddingHorizontal: 24 },
+  emptyText: { marginTop: 8, color: COLORS.textSecondary, fontSize: 14, textAlign: 'center' },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: 70,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E9CC16',
+    zIndex: 10,
+    elevation: ELEV,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
 });
-
 
 export default FriendsView;

@@ -1,5 +1,20 @@
 import React, { useState, useContext } from 'react';
-import { StatusBar, ActivityIndicator, KeyboardAvoidingView, View, Text, TouchableOpacity, TextInput, Image, StyleSheet, Platform, ScrollView, RefreshControl, Alert } from 'react-native';
+import {
+  StatusBar,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  View,
+  Text,
+  TouchableOpacity,
+  TextInput,
+  Image,
+  StyleSheet,
+  Platform,
+  ScrollView,
+  RefreshControl,
+  Alert,
+  SafeAreaView,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../../../context/AuthContext.js';
 import Feather from 'react-native-vector-icons/Feather';
@@ -7,267 +22,311 @@ import Feather from 'react-native-vector-icons/Feather';
 import { auth } from '../../firebase/firebase.config.js';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import axios from 'axios';
-// import { baseURL } from '../../../constants/url.js';
-import colors from '../../../constants/colors.js';
-import { API_BASE_URL } from '../../config/api.js'; 
+// import colors from '../../../constants/colors.js';
+import { API_BASE_URL } from '../../config/api.js';
 
 const api = axios.create({
-    baseURL: API_BASE_URL, 
+  baseURL: API_BASE_URL,
 });
 
 export default function Register() {
-    const navigation = useNavigation();
-    const [userName, setUserName] = useState('');
-    const [userMail, setUserMail] = useState('');
-    const [userPass, setUserPass] = useState('');
-    const [userRePass, setUserRePass] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false); // Estado para controlar o estado de atualização
-    const { register } = useContext(AuthContext);
+  const navigation = useNavigation();
+  const [userName, setUserName] = useState('');
+  const [userMail, setUserMail] = useState('');
+  const [userPass, setUserPass] = useState('');
+  const [userRePass, setUserRePass] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const { register } = useContext(AuthContext);
 
-    // Função para alternar a visibilidade da senha
-    const toggleShowPassword = () => {
-        setShowPassword(!showPassword);
-    };
+  const toggleShowPassword = () => setShowPassword(!showPassword);
 
-    const newUser = async () => {
-        if (userMail === '' || userPass === '' || userRePass === '') {
-            alert('Todos os campos devem ser preenchidos');
-            return;
-        }
-        if (userPass !== userRePass) {
-            alert('A senha e confirmação devem ser iguais');
-            return;
-        }
-        if (userPass.length < 6) {
-            alert('A senha deve ter pelo menos 6 caracteres');
-            return;
-        }
-        setLoading(true); // Inicia o indicador de carregamento
+  const newUser = async () => {
+    if (userMail === '' || userPass === '' || userRePass === '' || userName === '') {
+      Alert.alert('Campos obrigatórios', 'Todos os campos devem ser preenchidos');
+      return;
+    }
+    if (userPass !== userRePass) {
+      Alert.alert('Atenção', 'A senha e confirmação devem ser iguais');
+      return;
+    }
+    if (userPass.length < 6) {
+      Alert.alert('Atenção', 'A senha deve ter pelo menos 6 caracteres');
+      return;
+    }
+    setLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, userMail, userPass);
+      const user = userCredential.user;
 
-        try {
-            // Cria o usuário no Firebase
-            const UserCredential = await createUserWithEmailAndPassword(auth, userMail, userPass);
-            const user = UserCredential.user;
+      const userData = {
+        idFirebase: user.uid,
+        nome_completo: userName,
+        email: userMail,
+      };
 
-            console.log('Usuário criado com sucesso:', user);
-            console.log('ID do usuário Firebase:', user.uid);
+      const response = await api.post(`${API_BASE_URL}/users`, userData);
 
-            const userData = {
-                idFirebase: user.uid,
-                nome_completo: userName,
-                email: userMail,
-            };
+      if (response.status === 201) {
+        Alert.alert('Sucesso', 'Usuário adicionado com sucesso');
+        navigation.goBack();
+      } else {
+        Alert.alert('Erro', 'Erro ao salvar usuário no banco de dados');
+      }
+    } catch (error) {
+      if (error?.code === 'auth/email-already-in-use') {
+        Alert.alert('Atenção', 'Este e-mail já está em uso. Por favor, use outro.');
+      } else {
+        Alert.alert('Erro', `Erro ao criar usuário: ${error?.message || 'Tente novamente.'}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-            // console.log('Dados do usuário a serem enviados para o MySQL:', userData);
-            // console.log(baseURL + `user/profile`)
-            const response = await api.post(`${API_BASE_URL}/users`, userData);
-            // console.log(response)
+  const onRefresh = () => {
+    setRefreshing(true);
+    setUserName('');
+    setUserMail('');
+    setUserPass('');
+    setUserRePass('');
+    setRefreshing(false);
+  };
 
-            // Verifica se a resposta contém sucesso, baseando-se na resposta do servidor
-            if (response.status === 201) {
-                alert('Usuário adicionado com sucesso');
-                console.log('Resposta da API ao salvar usuário:', response.data);
-                navigation.goBack();
-            } else {
-                alert('Erro ao salvar usuário no banco de dados');
-                console.error('Erro ao salvar usuário no banco de dados:', response.data);
-            }
-        } catch (error) {
-            console.error('Erro ao criar usuário:', error);
-            if (error.code === 'auth/email-already-in-use') {
-                alert('Este e-mail já está em uso. Por favor, use outro e-mail.');
-            } else {
-                alert('Erro ao criar usuário: ' + error.message);
-            }
-        } finally {
-            setLoading(false); // Para o carregamento
-        }
-    };
-
-
-
-    const onRefresh = () => {
-        setRefreshing(true);
-        // Limpar os campos de e-mail e senha
-        setUserMail('');
-        setUserPass('');
-        setUserRePass('');
-        setRefreshing(false);
-    };
-
-    return (
-        <KeyboardAvoidingView
-            style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: BRAND_BG }}>
+      <StatusBar barStyle="dark-content" backgroundColor={BRAND_BG} />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
-            <ScrollView
-                contentContainerStyle={{ flexGrow: 1 }}
-                keyboardShouldPersistTaps="handled"
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={onRefresh}
-                    />
-                }
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.brandRow}>
+              <Image
+                source={require('../../../assets/logo_Preto.png')}
+                style={styles.logo}
+                resizeMode="contain"
+                accessible
+                accessibilityLabel="Logo do aplicativo"
+              />
+            </View>
+            <Text style={styles.headline}>Crie sua conta ✨</Text>
+            <Text style={styles.subtitle}>Leve sua biblioteca com você</Text>
+          </View>
+
+          {/* Card */}
+          <View style={styles.card}>
+            {/* Nome */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Nome</Text>
+              <View style={styles.inputWrapper}>
+                <Feather name="user" size={20} style={styles.inputIcon} />
+                <TextInput
+                  placeholder="Digite seu nome"
+                  placeholderTextColor="#8A8A8A"
+                  style={styles.input}
+                  value={userName}
+                  onChangeText={setUserName}
+                  returnKeyType="next"
+                  accessibilityLabel="Campo de nome completo"
+                />
+              </View>
+            </View>
+
+            {/* Email */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>E-mail</Text>
+              <View style={styles.inputWrapper}>
+                <Feather name="mail" size={20} style={styles.inputIcon} />
+                <TextInput
+                  placeholder="Digite seu e-mail"
+                  placeholderTextColor="#8A8A8A"
+                  style={styles.input}
+                  value={userMail}
+                  onChangeText={setUserMail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  accessibilityLabel="Campo de e-mail"
+                />
+              </View>
+            </View>
+
+            {/* Senha */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Senha</Text>
+              <View style={styles.inputWrapper}>
+                <Feather name="lock" size={20} style={styles.inputIcon} />
+                <TextInput
+                  secureTextEntry={!showPassword}
+                  placeholder="Digite sua senha"
+                  placeholderTextColor="#8A8A8A"
+                  style={styles.input}
+                  value={userPass}
+                  onChangeText={setUserPass}
+                  returnKeyType="next"
+                  accessibilityLabel="Campo de senha"
+                />
+                <TouchableOpacity
+                  onPress={toggleShowPassword}
+                  style={styles.trailingIconBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  <Feather name={showPassword ? 'eye' : 'eye-off'} size={20} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Confirmar senha */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Confirmação de senha</Text>
+              <View style={styles.inputWrapper}>
+                <Feather name="lock" size={20} style={styles.inputIcon} />
+                <TextInput
+                  secureTextEntry={!showPassword}
+                  placeholder="Repita sua senha"
+                  placeholderTextColor="#8A8A8A"
+                  style={styles.input}
+                  value={userRePass}
+                  onChangeText={setUserRePass}
+                  returnKeyType="done"
+                  accessibilityLabel="Campo de confirmação de senha"
+                />
+                <TouchableOpacity
+                  onPress={toggleShowPassword}
+                  style={styles.trailingIconBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  <Feather name={showPassword ? 'eye' : 'eye-off'} size={20} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Botão */}
+            <TouchableOpacity
+              style={[styles.primaryBtn, loading && styles.disabledBtn]}
+              onPress={newUser}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Cadastrar"
             >
-                <View style={styles.containerHeader}>
-                    <Text style={styles.welcome}>Cadastre-se</Text>
-                    <View style={styles.imageContainer}>
-                        <Image
-                            source={require('../../../assets/logo_Preto.png')}
-                            style={styles.image}
-                            resizeMode="contain"
-                        />
-                    </View>
-                </View>
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="user-plus" size={18} color="#fff" style={styles.btnIcon} />
+                  <Text style={styles.primaryBtnText}>Cadastrar</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-                <View style={styles.containerForm}>
-                    <StatusBar style="auto" />
+            {/* Link voltar */}
+            <View style={styles.linksRow}>
+              <TouchableOpacity onPress={() => navigation.goBack()}>
+                <Text style={styles.linkText}>Já tem conta? Entrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
 
-                    <Text style={styles.title}>Nome</Text>
-                    <TextInput
-                        placeholder="Digite seu nome..."
-                        style={styles.input}
-                        value={userName}
-                        onChangeText={setUserName}
-                    />
-                    <Text style={styles.title}>Email</Text>
-                    <TextInput
-                        placeholder="Digite seu E-mail..."
-                        style={styles.input}
-                        value={userMail}
-                        onChangeText={setUserMail}
-                    />
-
-                    <Text style={styles.title}>Senha</Text>
-                    <View style={styles.passwordInputContainer}>
-                        <TextInput
-                            secureTextEntry={!showPassword}
-                            placeholder="Digite sua senha..."
-                            style={[styles.input, styles.passwordInput]}
-                            value={userPass}
-                            onChangeText={setUserPass}
-                        />
-                        <TouchableOpacity onPress={toggleShowPassword} style={styles.togglePasswordButton}>
-                            <Feather name={showPassword ? 'eye' : 'eye-off'} size={24} color="black" />
-                        </TouchableOpacity>
-                    </View>
-
-                    <Text style={styles.title}>Confirmação de senha</Text>
-                    <View style={styles.passwordInputContainer}>
-                        <TextInput
-                            secureTextEntry={!showPassword}
-                            placeholder="Repita sua senha..."
-                            style={[styles.input, styles.passwordInput]}
-                            value={userRePass}
-                            onChangeText={setUserRePass}
-                        />
-                        <TouchableOpacity onPress={toggleShowPassword} style={styles.togglePasswordButton}>
-                            <Feather name={showPassword ? 'eye' : 'eye-off'} size={24} color="black" />
-                        </TouchableOpacity>
-                    </View>
-                    <TouchableOpacity
-                        style={styles.button}
-                        onPress={newUser}
-                        disabled={loading}
-                    >
-                        {loading ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                        ) : (
-                            <Text style={styles.buttonText}>Cadastrar</Text>
-                        )}
-                    </TouchableOpacity>
-                </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
-    );
+          {/* Rodapé */}
+          <Text style={styles.footerNote}>Ao continuar, você concorda com os Termos e a Política</Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
 }
 
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f3d00f',
-    },
-    containerHeader: {
-        marginTop: '14%',
-        marginBottom: "8%",
-        paddingStart: '5%',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    welcome: {
-        fontSize: 30,
-        fontWeight: 'bold',
-        color: '#000000',
-        marginVertical: 8,
-    },
-    imageContainer: {
-        alignItems: 'center',
-    },
-    image: {
-        width: 300,
-        height: 180,
-        borderRadius: 20,
-    },
-    containerForm: {
-        backgroundColor: '#fff',
-        flex: 1,
-        marginRight: 5,
-        marginLeft: 5,
-        borderTopLeftRadius: 18,
-        borderTopRightRadius: 18,
-        paddingStart: '5%',
-        paddingEnd: '5%',
-        position: 'relative', // Para posicionar o ícone de olho
-    },
-    title: {
-        fontSize: 20,
-        marginTop: 28
-    },
-    input: {
-        borderBottomWidth: 1,
-        height: 40,
-        marginBottom: 10,
-        fontSize: 16,
-    },
-    button: {
-        backgroundColor: '#000000',
-        width: '100%',
-        borderRadius: 6,
-        paddingVertical: 8,
-        marginTop: 40,
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    buttonText: {
-        fontSize: 19,
-        color: '#ffff',
-        fontWeight: 'bold'
-    },
-    buttonRegister: {
-        marginTop: 3,
-        alignSelf: 'center'
-    },
-    registerText: {
-        color: '#000000',
-        marginTop: 20,
-        fontSize: 15,
-    },
-    togglePasswordButton: {
-        paddingEnd: 10,
-        position: 'absolute', // Posiciona o ícone absolutamente
-        right: 0, // Posiciona o ícone no canto direito do contêiner pai
-        top: 0, // Posiciona o ícone no topo do contêiner pai
-    },
-    passwordInputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
+/** Paleta e estilos */
+const BRAND_BG = '#62cac2ff';      // fundo suave (azul claro)
+const TEXT_PRIMARY = '#111111';
+const TEXT_SECONDARY = '#555';
+const SURFACE = '#FFFFFF';
+const BORDER = '#E8E8E8';
+const FIELD_BG = '#F7F7F7';
 
-    },
-    passwordInput: {
-        flex: 1,
-    },
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BRAND_BG },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 24 },
+  header: { paddingTop: 16, alignItems: 'center' },
+  brandRow: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  logo: { width: 220, height: 120, borderRadius: 16 },
+  headline: { fontSize: 24, fontWeight: '700', color: TEXT_PRIMARY, marginTop: 4 },
+  subtitle: { fontSize: 14, color: TEXT_SECONDARY, marginTop: 4 },
+
+  card: {
+    backgroundColor: SURFACE,
+    marginTop: 16,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+
+  inputGroup: { marginTop: 14 },
+  label: { fontSize: 14, color: TEXT_PRIMARY, marginBottom: 8, fontWeight: '600' },
+
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: FIELD_BG,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  inputIcon: { marginRight: 8, color: '#444' },
+  input: { flex: 1, color: TEXT_PRIMARY, fontSize: 16 },
+
+  trailingIconBtn: { padding: 6, marginLeft: 8 },
+
+  primaryBtn: {
+    marginTop: 18,
+    backgroundColor: '#111111',
+    height: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  disabledBtn: { opacity: 0.6 },
+  btnIcon: { marginRight: 8 },
+  primaryBtnText: { color: '#fff', fontWeight: '700' },
+
+  linksRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  linkText: {
+    color: TEXT_PRIMARY,
+    textDecorationLine: 'underline',
+    fontSize: 14,
+  },
+
+  footerNote: {
+    textAlign: 'center',
+    color: TEXT_SECONDARY,
+    fontSize: 12,
+    marginTop: 18,
+  },
 });
