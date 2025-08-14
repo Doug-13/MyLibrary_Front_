@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import {
   StatusBar,
   ActivityIndicator,
@@ -20,12 +20,6 @@ import Feather from 'react-native-vector-icons/Feather';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LottieView from 'lottie-react-native';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithCredential,
-  signInWithEmailAndPassword,
-} from '@react-native-firebase/auth';
 import auth from '@react-native-firebase/auth';
 
 export default function Login() {
@@ -37,6 +31,14 @@ export default function Login() {
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: '920349589094-v6t2gasjo44s877lo0mp1tm9krbldok5.apps.googleusercontent.com',
+      offlineAccess: false,
+      forceCodeForRefreshToken: false,
+    });
+  }, []);
+
   const handleSignIn = async () => {
     if (!userMail || !userPass) {
       setErrorMessage('Por favor, preencha todos os campos.');
@@ -44,7 +46,8 @@ export default function Login() {
     }
 
     try {
-      await signIn(userMail, userPass, navigation.navigate);
+      // ❗️Não passe navigation aqui. O AuthContext deve apenas logar; o Routes troca a pilha.
+      await signIn(userMail, userPass);
       setErrorMessage('');
     } catch (error) {
       if (error?.code) {
@@ -72,23 +75,31 @@ export default function Login() {
 
   async function googleSignIn() {
     try {
-      const authInstance = getAuth();
-      GoogleSignin.configure({
-        offlineAccess: false,
-        webClientId: '920349589094-9rr0nq1gor1uc3nm231k0fkqrou4bfbb.apps.googleusercontent.com',
-        scopes: ['profile', 'email'],
-      });
-      await GoogleSignin.hasPlayServices();
-      const signInResult = await GoogleSignin.signIn();
-      const idToken = signInResult.data?.idToken;
-      const googleCredentials = GoogleAuthProvider.credential(idToken);
-      const userCredentials = await signInWithCredential(authInstance, googleCredentials);
-      const user = userCredentials.user;
-      await AsyncStorage.setItem('userCredentials', JSON.stringify(user));
-      navigation.replace('HomeScreen');
-      console.log('=> signIn with google success', user);
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+
+      await GoogleSignin.signIn(); // seletor de contas Google
+      const { idToken } = await GoogleSignin.getTokens();
+      if (!idToken) throw new Error('Sem idToken do Google');
+
+      const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+      const userCredential = await auth().signInWithCredential(googleCredential);
+      const user = userCredential.user;
+
+      // ❗️Não navegue manualmente. O listener onAuthStateChanged ajusta 'signed' e o Routes troca para AppRoutes.
+      // navigation.replace('HomeScreen');
+      console.log('=> Google sign-in OK', user.uid, user.email);
+      setErrorMessage('');
     } catch (error) {
-      console.log('=> GoogleSignIn Error', error);
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        console.log('Usuário cancelou o login');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        console.log('Login em andamento...');
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setErrorMessage('Atualize o Google Play Services no dispositivo.');
+      } else {
+        console.log('=> GoogleSignIn Error', error);
+        setErrorMessage('Falha ao entrar com Google. Verifique SHAs e webClientId.');
+      }
     }
   }
 
@@ -202,9 +213,9 @@ export default function Login() {
             </TouchableOpacity>
 
             <View style={styles.dividerRow}>
-              <View style={styles.divider} />
+              <View className="divider" style={styles.divider} />
               <Text style={styles.dividerText}>ou</Text>
-              <View style={styles.divider} />
+              <View className="divider" style={styles.divider} />
             </View>
 
             <TouchableOpacity
@@ -213,7 +224,6 @@ export default function Login() {
               accessibilityRole="button"
               accessibilityLabel="Entrar com Google"
             >
-              {/* dica: se tiver o ícone do Google em assets, troque o G por Image */}
               <View style={styles.googleMonogram}>
                 <Text style={styles.googleMonogramText}>G</Text>
               </View>
@@ -246,7 +256,6 @@ const TEXT_SECONDARY = '#555';
 const SURFACE = '#FFFFFF';
 const BORDER = '#E8E8E8';
 const FIELD_BG = '#F7F7F7';
-const SHADOW = 'rgba(0,0,0,0.08)';
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BRAND_YELLOW },
@@ -317,11 +326,7 @@ const styles = StyleSheet.create({
   disabledBtn: { opacity: 0.6 },
   btnIcon: { marginRight: 8 },
 
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 14,
-  },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 14 },
   divider: { flex: 1, height: 1, backgroundColor: BORDER },
   dividerText: { marginHorizontal: 10, color: TEXT_SECONDARY, fontSize: 12 },
 
@@ -349,37 +354,8 @@ const styles = StyleSheet.create({
   googleMonogramText: { fontWeight: '700', color: '#000' },
   googleBtnText: { fontWeight: '700', color: TEXT_PRIMARY },
 
-  linksRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 16,
-  },
-  linkText: {
-    color: TEXT_PRIMARY,
-    textDecorationLine: 'underline',
-    fontSize: 14,
-  },
+  linksRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 16 },
+  linkText: { color: TEXT_PRIMARY, textDecorationLine: 'underline', fontSize: 14 },
 
-  footerNote: {
-    textAlign: 'center',
-    color: TEXT_SECONDARY,
-    fontSize: 12,
-    marginTop: 18,
-  },
-
-  // (mantidos para compatibilidade caso reaproveite estilos antigos)
-  containerHeader: { display: 'none' },
-  containerForm: { display: 'none' },
-  title: { display: 'none' },
-  button: { display: 'none' },
-  buttonText: { display: 'none' },
-  buttonRegister: { display: 'none' },
-  registerText: { display: 'none' },
-  togglePasswordButton: { display: 'none' },
-  passwordInputContainer: { display: 'none' },
-  passwordInput: { display: 'none' },
-  buttonForgotPassword: { display: 'none' },
-  forgotPasswordText: { display: 'none' },
-  googleButton: { display: 'none' },
-  googleButtonText: { display: 'none' },
+  footerNote: { textAlign: 'center', color: TEXT_SECONDARY, fontSize: 12, marginTop: 18 },
 });

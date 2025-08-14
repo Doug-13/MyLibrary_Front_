@@ -1,45 +1,44 @@
 buildscript {
-    ext {
-        buildToolsVersion = "35.0.0"
-        minSdkVersion = 24
-        compileSdkVersion = 35
-        targetSdkVersion = 35
-        ndkVersion = "27.1.12297006"
-        kotlinVersion = "2.1.20"
-    }
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.4.0") // ✅ Versão adicionada
-        classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion") // ✅ Usa variável
-        classpath 'com.google.gms:google-services:4.3.15' 
-        // compile project(':react-native-image-crop-picker')
-    }
-    allprojects {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://www.jitpack.io' }
-    }
-    }
-
-    subprojects {
-        afterEvaluate { project ->
-            if (project.hasProperty("android")) {
-                android {
-                    variantFilter { variant ->
-                        def names = variant.flavors*.name
-                        if (names.contains("general")) {
-                            setIgnore(true)
-                        }
-                    }
-                }
-            }
-        }
-    }
+  ext {
+    buildToolsVersion = "35.0.0"
+    minSdkVersion = 24
+    compileSdkVersion = 35
+    targetSdkVersion = 35
+    ndkVersion = "27.1.12297006"
+    kotlinVersion = "2.1.20" // ou 1.9.24 se preferir estabilidade
+  }
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath("com.android.tools.build:gradle:8.5.2")
+    classpath("com.facebook.react:react-native-gradle-plugin")
+    classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    classpath("com.google.gms:google-services:4.3.15")
+  }
 }
 
-apply plugin: "com.facebook.react.rootproject"
+allprojects {
+  repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://www.jitpack.io' }
+  }
+}
+
+// (opcional, só se realmente usa esse filtro)
+subprojects {
+  afterEvaluate { project ->
+    if (project.hasProperty("android")) {
+      android {
+        variantFilter { variant ->
+          def names = variant.flavors*.name
+          if (names.contains("general")) {
+            setIgnore(true)
+          }
+        }
+      }
+    }
+  }
+}

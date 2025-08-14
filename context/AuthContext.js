@@ -1,148 +1,147 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../src/firebase/firebase.config';
 import axios from 'axios';
-
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import auth, {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+} from '@react-native-firebase/auth';
 import { API_BASE_URL } from '../src/config/api';
 
 export const AuthContext = createContext({});
 
 export function AuthProvider({ children }) {
+  const authInstance = getAuth();
   const [signed, setSigned] = useState(false);
   const [loading, setLoading] = useState(true);
+
   const [userName, setUserName] = useState('');
-  const [userFirstName, setUserFirstName] = useState(''); // Novo estado para o primeiro nome
+  const [userFirstName, setUserFirstName] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [libraryVisibility, setLibraryVisibility] = useState('');
   const [userId, setUserId] = useState('');
   const [userMongoId, setUserMongoId] = useState('');
   const [userProfilePicture, setUserProfilePicture] = useState('');
   const [timeStamp, setTimeStamp] = useState('');
-  const [errorMessage, setErrorMessage] = useState(''); // Definido corretamente
 
-  // Função para extrair o primeiro nome
-  const extractFirstName = (fullName) => {
-    if (!fullName) return '';
-    return fullName.split(' ')[0];
+  const extractFirstName = (fullName) => (fullName ? fullName.split(' ')[0] : '');
+
+  async function fetchOrCreateUserByFirebase(firebaseUser) {
+    const uid = firebaseUser?.uid;
+    if (!uid) throw new Error('Firebase UID não disponível');
+
+    const displayName =
+      firebaseUser?.displayName ||
+      firebaseUser?.providerData?.[0]?.displayName ||
+      firebaseUser?.email?.split('@')?.[0] ||
+      'Usuário';
+
+    const email = firebaseUser?.email || '';
+    const foto = firebaseUser?.photoURL || '';
+
+    const payload = {
+      idFirebase: uid,
+      nome_completo: displayName,
+      email,
+      visibilidade_biblioteca: 'friends',
+      generos_favoritos: [],
+      foto_perfil: foto,
+      sobremim: '',
+      telefone: '',
+    };
+
+    const { data } = await axios.post(`${API_BASE_URL}/users/google-login`, payload);
+    return data;
+  }
+
+  const clearState = async () => {
+    await AsyncStorage.multiRemove(['userToken']);
+    setSigned(false);
+    setUserId('');
+    setUserMongoId('');
+    setUserName('');
+    setUserFirstName('');
+    setLibraryVisibility('');
+    setUserProfilePicture('');
+    setAboutMe('');
+  };
+
+  const logout = async () => {
+    try {
+      await GoogleSignin.signOut().catch(() => { });
+      // Opcional: await GoogleSignin.revokeAccess().catch(() => {});
+      await firebaseSignOut(auth());
+    } finally {
+      await clearState();
+    }
   };
 
   useEffect(() => {
-    const checkLoggedInUser = async () => {
+    const unsub = onAuthStateChanged(authInstance, async (firebaseUser) => {
       try {
-        const userToken = await AsyncStorage.getItem('userToken');
-        if (userToken) {
-          
-          const response = await axios.get(`${API_BASE_URL}/users/${userToken}`);
-          const userData = response.data;
-
-          setUserId(userToken);
-          setUserName(userData.nome_completo);
-          setUserFirstName(extractFirstName(userData.nome_completo)); // Define o primeiro nome
-          setLibraryVisibility(userData.visibilidade_biblioteca);
-          setUserMongoId(userData._id);
-          setUserProfilePicture(userData.foto_perfil);
-          setAboutMe(userData.sobremim);
-          setSigned(true);
+        if (!firebaseUser) {
+          await clearState();
+          return;
         }
-      } catch (error) {
-        console.error('Error checking logged-in user:', error.message);
+
+        const uid = firebaseUser.uid;
+        await AsyncStorage.setItem('userToken', uid);
+
+        const u = await fetchOrCreateUserByFirebase(firebaseUser);
+
+        setUserId(uid);
+        setUserName(u?.nome_completo || '');
+        setUserFirstName(extractFirstName(u?.nome_completo || ''));
+        setLibraryVisibility(u?.visibilidade_biblioteca || '');
+        setUserMongoId(u?._id || '');
+        setUserProfilePicture(u?.foto_perfil || '');
+        setAboutMe(u?.sobremim || '');
+
+        setSigned(true);
+      } catch (e) {
+        console.log('AuthContext onAuthStateChanged error:', e?.message);
+        setSigned(!!authInstance.currentUser);
       } finally {
         setLoading(false);
       }
-    };
+    });
 
-    checkLoggedInUser();
-  }, []);
+    return unsub;
+  }, [authInstance]);
 
-  const signIn = async (email, password, navigate) => {
+  const signIn = async (email, password) => {
     setLoading(true);
-    setErrorMessage(''); // Limpa mensagens de erro anteriores
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
-      console.log("Trancando aqui")
-      console.log(`${API_BASE_URL}/users/${firebaseUser.uid}`)
-      const response = await axios.get(`${API_BASE_URL}/users/${firebaseUser.uid}`);
-      console.log("Trancando aqui")
-      const userData = response.data;
-  
-      await AsyncStorage.setItem('userToken', firebaseUser.uid);
-  
-      setUserId(firebaseUser.uid);
-      setUserName(userData.nome_completo);
-      setUserFirstName(extractFirstName(userData.nome_completo));
-      setLibraryVisibility(userData.visibilidade_biblioteca);
-      setUserMongoId(userData._id);
-      setUserProfilePicture(userData.foto_perfil);
-      setAboutMe(userData.sobremim);
-  
-      setSigned(true);
-      navigate('MainScreen');
-    } catch (error) {
-      console.log('Erro técnico durante login:', error); // Log técnico para depuração
-      switch (error.code) {
-        case 'auth/user-not-found':
-          setErrorMessage('E-mail não cadastrado. Por favor, registre-se.');
-          break;
-        case 'auth/wrong-password':
-          setErrorMessage('Senha incorreta. Verifique e tente novamente.');
-          break;
-        case 'auth/invalid-email':
-          setErrorMessage('E-mail inválido. Por favor, insira um e-mail válido.');
-          break;
-        case 'auth/invalid-credential':
-          setErrorMessage('Usuário não cadastrado. Favor realizar seu cadastro.');
-          break;
-        default:
-          setErrorMessage('Ocorreu um erro ao realizar login. Tente novamente.');
-      }
+      await signInWithEmailAndPassword(authInstance, email, password);
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = async () => {
-    try {
-      await AsyncStorage.removeItem('userToken');
-
-      setUserId('');
-      setUserName('');
-      setUserFirstName(''); // Limpa o primeiro nome
-      setLibraryVisibility('');
-      setUserMongoId('');
-      setUserProfilePicture('');
-      setAboutMe('');
-
-      setSigned(false);
-    } catch (error) {
-      console.error('Error during logout:', error.message);
-    }
-  };
-
-  // Função para atualizar os dados do usuário no contexto
   const updateUser = (updatedData) => {
     if (updatedData.nome_completo !== undefined) {
       setUserName(updatedData.nome_completo);
-      setUserFirstName(extractFirstName(updatedData.nome_completo)); // Atualiza o primeiro nome
+      setUserFirstName(extractFirstName(updatedData.nome_completo));
     }
-    if (updatedData.visibilidade_biblioteca !== undefined) setLibraryVisibility(updatedData.visibilidade_biblioteca);
-    if (updatedData.foto_perfil !== undefined) setUserProfilePicture(updatedData.foto_perfil);
-    if (updatedData.sobremim !== undefined) setAboutMe(updatedData.sobremim);
+    if (updatedData.visibilidade_biblioteca !== undefined)
+      setLibraryVisibility(updatedData.visibilidade_biblioteca);
+    if (updatedData.foto_perfil !== undefined)
+      setUserProfilePicture(updatedData.foto_perfil);
+    if (updatedData.sobremim !== undefined)
+      setAboutMe(updatedData.sobremim);
   };
 
-  
-
-  return (
-    <AuthContext.Provider value={{
+  const value = useMemo(
+    () => ({
       signed,
       loading,
       signIn,
       logout,
       sobremim: aboutMe,
       nome_completo: userName,
-      primeiro_nome: userFirstName, // Expondo o primeiro nome
+      primeiro_nome: userFirstName,
       visibilidade_biblioteca: libraryVisibility,
       userId,
       userMongoId,
@@ -150,8 +149,20 @@ export function AuthProvider({ children }) {
       setTimeStamp,
       timeStamp,
       updateUser,
-    }}>
-      {children}
-    </AuthContext.Provider>
+    }),
+    [
+      signed,
+      loading,
+      aboutMe,
+      userName,
+      userFirstName,
+      libraryVisibility,
+      userId,
+      userMongoId,
+      userProfilePicture,
+      timeStamp,
+    ]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

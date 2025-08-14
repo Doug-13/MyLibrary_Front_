@@ -1,4 +1,12 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState, memo } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  memo,
+} from 'react';
 import {
   SafeAreaView,
   Text,
@@ -49,15 +57,26 @@ const Rating = memo(({ rating }) => {
 });
 
 const Progress = memo(({ currentPage, pageCount }) => {
-  if (!currentPage || !pageCount) return null;
-  const pct = Math.min(currentPage / pageCount, 1);
+  // Converte valores
+  const cur = Number(currentPage);
+  const total = Number(pageCount);
+
+  // Valida: só oculta se total inválido (<= 0) ou número inválido
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(cur) || cur < 0) return null;
+
+  const pct = Math.min(cur / total, 1);
+
+  // mínimo visual para não sumir quando 0%
+  const widthPct = Math.max(pct * 100, 2);
+
   return (
-    <View style={styles.progressWrap}>
-      <View style={[styles.progressBar, { width: `${pct * 100}%` }]} />
+    <View style={styles.progressWrap} accessibilityLabel={`Progresso de leitura ${Math.round(pct * 100)}%`}>
+      <View style={[styles.progressBar, { width: `${widthPct}%` }]} />
       <Text style={styles.progressPct}>{Math.round(pct * 100)}%</Text>
     </View>
   );
 });
+
 
 const BookCard = memo(({ item, onPress }) => {
   const src =
@@ -71,7 +90,9 @@ const BookCard = memo(({ item, onPress }) => {
       <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
       <Text style={styles.cardAuthor} numberOfLines={1}>{item.author}</Text>
       <Rating rating={item.rating} />
-      {item.status === 'lendo' && <Progress currentPage={item.currentPage} pageCount={item.page_count} />}
+      {item.status === 'lendo' && (
+        <Progress currentPage={item.currentPage} pageCount={item.page_count} />
+      )}
     </Pressable>
   );
 });
@@ -89,7 +110,9 @@ const BookRow = memo(({ item, onPress }) => {
         <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
         <Text style={styles.rowAuthor} numberOfLines={1}>{item.author}</Text>
         <Rating rating={item.rating} />
-        {item.status === 'lendo' && <Progress currentPage={item.currentPage} pageCount={item.page_count} />}
+        {item.status === 'lendo' && (
+          <Progress currentPage={item.currentPage} pageCount={item.page_count} />
+        )}
       </View>
       <Ionicons name="chevron-forward" size={18} color={MUTED} />
     </Pressable>
@@ -99,6 +122,13 @@ const BookRow = memo(({ item, onPress }) => {
 // ---------- Helpers ----------
 const normalizeTxt = (s = '') =>
   s.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+// Converte diferentes formatos de resposta em array
+const toArray = (v) =>
+  Array.isArray(v) ? v
+    : Array.isArray(v?.books) ? v.books
+      : Array.isArray(v?.data) ? v.data
+        : [];
 
 // ---------- Tela ----------
 export default function MainScreen() {
@@ -139,7 +169,10 @@ export default function MainScreen() {
 
   // ---------- Dados ----------
   const categorizeBooksByGenre = useCallback((data) => {
-    const readingBooks = data.filter((b) => b.status === 'lendo');
+    const list = toArray(data);
+    if (list.length === 0) return [];
+
+    const readingBooks = list.filter((b) => b.status === 'lendo');
     const readingSection = {
       title: 'Lendo',
       books: readingBooks.map((book) => ({
@@ -158,7 +191,7 @@ export default function MainScreen() {
     };
 
     const categories = {};
-    data.forEach((book) => {
+    list.forEach((book) => {
       if (book.status === 'lendo') return;
       const genre = book.genre || 'Outros';
       if (!categories[genre]) categories[genre] = { title: genre, books: [] };
@@ -185,14 +218,17 @@ export default function MainScreen() {
   const applyFilters = useCallback(
     (data, query = '') => {
       const q = normalizeTxt(query);
+      const safeSections = Array.isArray(data) ? data : [];
 
-      return data
+      return safeSections
         .map((section) => {
+          const books = Array.isArray(section?.books) ? section.books : [];
+
           // filtros
-          const baseFiltered = section.books.filter((book) => {
+          const baseFiltered = books.filter((book) => {
             if (showAllBooks) return true;
             if (showPrivateBooks && book.visibility === 'private') return true;
-            if (showLoanedBooks && book.loans?.length) {
+            if (showLoanedBooks && Array.isArray(book.loans) && book.loans.length) {
               const lastLoan = book.loans[book.loans.length - 1];
               return lastLoan?.status === 'Pendente';
             }
@@ -202,24 +238,24 @@ export default function MainScreen() {
           if (!q) return { ...section, books: baseFiltered };
 
           // se prateleira bater, mantém todos os livros (respeitando filtros acima)
-          const sectionMatches = normalizeTxt(section.title).includes(q);
+          const sectionMatches = normalizeTxt(section?.title || '').includes(q);
 
           // senão, filtra por título/autor
           const searched = sectionMatches
             ? baseFiltered
             : baseFiltered.filter((b) => {
-                const t = normalizeTxt(b.title);
-                const a = normalizeTxt(b.author || '');
-                return t.includes(q) || a.includes(q);
-              });
+              const t = normalizeTxt(b.title || '');
+              const a = normalizeTxt(b.author || '');
+              return t.includes(q) || a.includes(q);
+            });
 
           return { ...section, books: searched };
         })
-        .filter((s) => s.books.length > 0)
+        .filter((s) => Array.isArray(s.books) && s.books.length > 0)
         .sort((a, b) => {
           if (a.title === 'Lendo') return -1;
           if (b.title === 'Lendo') return 1;
-          return a.title.localeCompare(b.title);
+          return (a.title || '').localeCompare(b.title || '');
         });
     },
     [showAllBooks, showPrivateBooks, showLoanedBooks]
@@ -227,39 +263,63 @@ export default function MainScreen() {
 
   const fetchBooks = useCallback(async () => {
     try {
+      // evita chamada sem userMongoId definido
+      if (!userMongoId) {
+        setAllSections([]);
+        setSections([]);
+        setHasPrivateBooks(false);
+        setHasLoanedBooks(false);
+        setLoading(false);
+        return;
+      }
+
       if (!refreshing) setLoading(true);
       setError(null);
 
       const res = await fetch(`${API_BASE_URL}/books/${userMongoId}/with-loans`);
-      const data = await res.json();
-      if (!mounted.current) return;
 
-      // espera a transição terminar antes do trabalho pesado
+      let raw = null;
+      try {
+        raw = await res.json();
+      } catch {
+        raw = null;
+      }
+
+      const list = toArray(raw);
+
       InteractionManager.runAfterInteractions(() => {
         if (!mounted.current) return;
 
-        const formatted = categorizeBooksByGenre(data);
+        const formatted = categorizeBooksByGenre(list);
         setAllSections(formatted);
         setSections(applyFilters(formatted, debouncedQuery));
 
-        setHasPrivateBooks(data.some((b) => b.visibility === 'private'));
-        setHasLoanedBooks(data.some((b) => b.loans?.some((l) => l.status === 'Pendente')));
+        setHasPrivateBooks(list.some((b) => b?.visibility === 'private'));
+        setHasLoanedBooks(
+          list.some((b) => Array.isArray(b?.loans) && b.loans.some((l) => l?.status === 'Pendente'))
+        );
       });
     } catch (e) {
       if (!mounted.current) return;
       setError('Falha ao carregar os livros. Tente novamente.');
+      setAllSections([]);
+      setSections([]);
+      setHasPrivateBooks(false);
+      setHasLoanedBooks(false);
     } finally {
       if (!mounted.current) return;
       setLoading(false);
       setRefreshing(false);
     }
-  }, [API_BASE_URL, userMongoId, applyFilters, categorizeBooksByGenre, refreshing, debouncedQuery]);
+  }, [userMongoId, applyFilters, categorizeBooksByGenre, refreshing, debouncedQuery]);
 
   useFocusEffect(
     useCallback(() => {
       mounted.current = true;
       fetchBooks();
-      return () => { mounted.current = false; };
+      return () => {
+        mounted.current = false;
+      };
     }, [fetchBooks])
   );
 
@@ -286,7 +346,9 @@ export default function MainScreen() {
 
       // prefetch da capa enquanto anima
       if (book.coverUrl) {
-        try { await Image.prefetch(book.coverUrl); } catch {}
+        try {
+          await Image.prefetch(book.coverUrl);
+        } catch { }
       }
       navigation.navigate('BooksView', { bookId: book.id });
     },
@@ -318,15 +380,27 @@ export default function MainScreen() {
 
   // Contadores
   const counts = useMemo(() => {
-    const total = allSections.reduce((acc, s) => acc + s.books.length, 0);
-    const priv = allSections.reduce((acc, s) => acc + s.books.filter((b) => b.visibility === 'private').length, 0);
-    const loan = allSections.reduce((acc, s) => acc + s.books.filter((b) => b.loans?.some((l) => l.status === 'Pendente')).length, 0);
+    const sectionsSafe = Array.isArray(allSections) ? allSections : [];
+    const total = sectionsSafe.reduce((acc, s) => acc + (s.books?.length || 0), 0);
+    const priv = sectionsSafe.reduce(
+      (acc, s) => acc + (s.books?.filter((b) => b.visibility === 'private').length || 0),
+      0
+    );
+    const loan = sectionsSafe.reduce(
+      (acc, s) =>
+        acc +
+        (s.books?.filter(
+          (b) => Array.isArray(b.loans) && b.loans.some((l) => l.status === 'Pendente')
+        ).length || 0),
+      0
+    );
     return { total, priv, loan };
   }, [allSections]);
 
   // Renderers
   const renderBookItem = useCallback(
-    ({ item }) => (isGridView ? <BookCard item={item} onPress={onBookPress} /> : <BookRow item={item} onPress={onBookPress} />),
+    ({ item }) =>
+      isGridView ? <BookCard item={item} onPress={onBookPress} /> : <BookRow item={item} onPress={onBookPress} />,
     [isGridView, onBookPress]
   );
 
@@ -337,7 +411,7 @@ export default function MainScreen() {
         <FlatList
           data={item.books}
           renderItem={renderBookItem}
-          keyExtractor={(b) => b.id}
+          keyExtractor={(b) => String(b.id)}
           horizontal={isGridView}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={isGridView ? styles.hList : undefined}
@@ -353,16 +427,7 @@ export default function MainScreen() {
     [isGridView, renderBookItem]
   );
 
-  // ---------- Estados de carregamento/erro ----------
-  // if (loading && !refreshing) {
-  //   return (
-  //       <View style={styles.loading}>
-  //         <LottieView source={require('../../../assets/animation3.json')} autoPlay loop style={{ width: 200, height: 200 }} />
-  //         <Text style={styles.loadingText}>Carregando sua biblioteca…</Text>
-  //       </View>
-  //   );
-  // }
-
+  // ---------- Estados de erro ----------
   if (error) {
     return (
       <SafeAreaView style={[styles.container, { justifyContent: 'center' }]}>
@@ -381,11 +446,17 @@ export default function MainScreen() {
     <SafeAreaView style={styles.container}>
       {/* Top bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.openDrawer()} accessibilityLabel="Abrir menu">
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => navigation.openDrawer()}
+          accessibilityLabel="Abrir menu"
+        >
           <MaterialIcons name="menu" size={26} color={TEXT} />
         </TouchableOpacity>
 
-        <Text style={styles.hello}>Olá, <Text style={{ fontWeight: '800' }}>{primeiro_nome}</Text></Text>
+        <Text style={styles.hello}>
+          Olá, <Text style={{ fontWeight: '800' }}>{primeiro_nome}</Text>
+        </Text>
 
         <TouchableOpacity onPress={() => navigation.navigate('Profile')} accessibilityLabel="Abrir perfil">
           <Image
@@ -435,7 +506,9 @@ export default function MainScreen() {
             accessibilityState={{ selected: showAllBooks }}
           >
             <Text style={[styles.chipTxt, showAllBooks && styles.chipTxtActive]}>Todos</Text>
-            <View style={[styles.badge, showAllBooks && styles.badgeActive]}><Text style={styles.badgeTxt}>{counts.total}</Text></View>
+            <View style={[styles.badge, showAllBooks && styles.badgeActive]}>
+              <Text style={styles.badgeTxt}>{counts.total}</Text>
+            </View>
           </Pressable>
 
           {hasPrivateBooks && (
@@ -445,7 +518,9 @@ export default function MainScreen() {
               accessibilityState={{ selected: showPrivateBooks }}
             >
               <Text style={[styles.chipTxt, showPrivateBooks && styles.chipTxtActive]}>Privados</Text>
-              <View style={[styles.badge, showPrivateBooks && styles.badgeActive]}><Text style={styles.badgeTxt}>{counts.priv}</Text></View>
+              <View style={[styles.badge, showPrivateBooks && styles.badgeActive]}>
+                <Text style={styles.badgeTxt}>{counts.priv}</Text>
+              </View>
             </Pressable>
           )}
 
@@ -456,7 +531,9 @@ export default function MainScreen() {
               accessibilityState={{ selected: showLoanedBooks }}
             >
               <Text style={[styles.chipTxt, showLoanedBooks && styles.chipTxtActive]}>Emprestados</Text>
-              <View style={[styles.badge, showLoanedBooks && styles.badgeActive]}><Text style={styles.badgeTxt}>{counts.loan}</Text></View>
+              <View style={[styles.badge, showLoanedBooks && styles.badgeActive]}>
+                <Text style={styles.badgeTxt}>{counts.loan}</Text>
+              </View>
             </Pressable>
           )}
         </View>
@@ -474,11 +551,19 @@ export default function MainScreen() {
       {/* Empty state */}
       {!hasBooks && debouncedQuery.length === 0 && (
         <View style={styles.emptyWrap}>
-          <Image source={require('../../../assets/emptyLibrary.jpg')} style={styles.emptyImg} resizeMode="contain" />
+          <Image
+            source={require('../../../assets/emptyLibrary.jpg')}
+            style={styles.emptyImg}
+            resizeMode="contain"
+          />
           <Text style={styles.emptyHello}>👋 Olá, {nome_completo}!</Text>
           <Text style={styles.emptyTitle}>📚 Sua biblioteca está vazia</Text>
-          <Text style={styles.emptyMsg}>Toque em “+” para adicionar seus primeiros livros e começar sua estante dos sonhos.</Text>
-          <Text style={styles.emptyMsg}>Conecte-se com amigos e descubra novas leituras juntos! 🌟</Text>
+          <Text style={styles.emptyMsg}>
+            Toque em “+” para adicionar seus primeiros livros e começar sua estante dos sonhos.
+          </Text>
+          <Text style={styles.emptyMsg}>
+            Conecte-se com amigos e descubra novas leituras juntos! 🌟
+          </Text>
         </View>
       )}
 
@@ -489,11 +574,18 @@ export default function MainScreen() {
         keyExtractor={(s) => s.title}
         contentContainerStyle={styles.listContent}
         scrollIndicatorInsets={{ right: 1 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} />
+        }
       />
 
       {/* Modal de notificações */}
-      <Modal transparent visible={notificationModalVisible} animationType="fade" onRequestClose={() => setNotificationModalVisible(false)}>
+      <Modal
+        transparent
+        visible={notificationModalVisible}
+        animationType="fade"
+        onRequestClose={() => setNotificationModalVisible(false)}
+      >
         <View style={styles.modalBackground}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Notificações</Text>
@@ -507,7 +599,10 @@ export default function MainScreen() {
                 </View>
               )}
             />
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setNotificationModalVisible(false)}>
+            <TouchableOpacity
+              style={styles.closeBtn}
+              onPress={() => setNotificationModalVisible(false)}
+            >
               <Text style={styles.closeTxt}>Fechar</Text>
             </TouchableOpacity>
           </View>
@@ -540,11 +635,50 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 6, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.05)' },
   hello: { flex: 1, textAlign: 'center', fontSize: 16, color: TEXT, fontWeight: '600' },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', borderWidth: 1, borderColor: '#fff' },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  progressWrap: {
+    marginTop: 10,
+    height: 8,
+    backgroundColor: '#E9ECEF',
+    borderRadius: 999,
+    overflow: 'hidden',
+    position: 'relative',
+    width: '100%',          // garante largura total do container
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: PRIMARY // dá cor à barra (antes não tinha)
+  },
 
-  headerRow: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6, flexDirection: 'row', alignItems: 'center' },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerTitle: { fontSize: 28, color: TEXT, fontWeight: '800', flex: 1 },
-  toggle: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: CARD, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: BORDER },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: CARD,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
   toggleTxt: { color: TEXT, fontWeight: '600' },
 
   searchWrap: {
@@ -564,11 +698,29 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 0 },
 
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: BORDER, backgroundColor: CARD, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
   chipActive: { backgroundColor: PRIMARY, borderColor: PRIMARY },
   chipTxt: { color: TEXT, fontWeight: '600' },
   chipTxtActive: { color: '#111827' },
-  badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: BORDER, alignItems: 'center', justifyContent: 'center' },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   badgeActive: { backgroundColor: '#111827' },
   badgeTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
@@ -586,7 +738,10 @@ const styles = StyleSheet.create({
     padding: 10,
     marginRight: 12,
     elevation: 3,
-    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
   cover: { width: '100%', height: 164, borderRadius: 10, marginBottom: 8, backgroundColor: '#EEE' },
   cardTitle: { fontSize: 12, fontWeight: '700', color: TEXT },
@@ -609,8 +764,7 @@ const styles = StyleSheet.create({
 
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
 
-  progressWrap: { marginTop: 10, height: 8, backgroundColor: '#E9ECEF', borderRadius: 999, overflow: 'hidden', position: 'relative' },
-  progressBar: { position: 'absolute', left: 0, top: 0, bottom: 0 },
+
   progressPct: { position: 'absolute', right: 8, top: -18, fontSize: 11, color: MUTED },
 
   emptyWrap: { paddingHorizontal: 24, paddingTop: 30, alignItems: 'center' },
@@ -622,8 +776,24 @@ const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG },
   loadingText: { marginTop: 12, fontSize: 16, color: TEXT, fontWeight: '600' },
 
-  errorText: { color: '#B91C1C', textAlign: 'center', fontSize: 16, marginBottom: 12, paddingHorizontal: 24 },
-  retryBtn: { alignSelf: 'center', flexDirection: 'row', gap: 8, backgroundColor: PRIMARY, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: '#EAB308' },
+  errorText: {
+    color: '#B91C1C',
+    textAlign: 'center',
+    fontSize: 16,
+    marginBottom: 12,
+    paddingHorizontal: 24,
+  },
+  retryBtn: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#EAB308',
+  },
   retryTxt: { color: TEXT, fontWeight: '700' },
 
   // Modal
@@ -636,3 +806,4 @@ const styles = StyleSheet.create({
   closeBtn: { marginTop: 16, backgroundColor: PRIMARY, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   closeTxt: { fontSize: 16, fontWeight: '800', color: TEXT },
 });
+

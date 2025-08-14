@@ -12,6 +12,8 @@ import {
   BackHandler,
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
+import { ActivityIndicator } from 'react-native';
+
 import { Picker } from '@react-native-picker/picker';
 import { RadioButton } from 'react-native-paper';
 import Icon from 'react-native-vector-icons/MaterialIcons';

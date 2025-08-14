@@ -1,9 +1,9 @@
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import BottomTabsRoutes from './bottomTabsRoutes';
 import CustomDrawerContent from '../src/components/CustomDrawer';
-import AddBooks from '../src/pages/AddBooks/index';
+
+import AddBooks from '../src/pages/AddBooks';
 import DataBooks from '../src/pages/DataBooks';
 import EditBooks from '../src/pages/EditBooks';
 import BooksView from '../src/pages/BooksView';
@@ -17,124 +17,49 @@ import Estatisticas from '../src/pages/Estatisticas';
 import SearchBooks from '../src/pages/SearchBooks';
 import BookDetailsFriends from '../src/pages/BookDetailsFriends';
 import LoanBooksList from '../src/pages/LoanBooksList';
-// import MainScreen from '../src/pages/MainScreen';
-
 import Profile from '../src/pages/Profile';
 import ViewProfile from '../src/pages/ViewProfile';
-// import Bibliotech from '../src/pages/Bibliotech';
-
 
 const Drawer = createDrawerNavigator();
 
-// Configuração do Drawer Navigator
-function DrawerRoutes() {
-    return (
-        <Drawer.Navigator
-            drawerContent={(props) => <CustomDrawerContent {...props} />}
-            screenOptions={{
-                drawerStyle: {
-                    backgroundColor: '#fff',
-                    width: 280,
-                },
-                headerShown: false,
-            }}
-        >
-            {/* Rotas do Drawer */}
-            <Drawer.Screen
-                name="HomeTabs"
-                component={BottomTabsRoutes}
-                options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="AddBooks"
-                component={AddBooks}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="SearchBooks"
-                component={SearchBooks}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="EditBooks"
-                component={EditBooks}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="BooksView"
-                component={BooksView}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="SearchUsers"
-                component={SearchUsers}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="FriendsProfile"
-                component={FriendsProfile}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="Loan"
-                component={Loan}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="Profile"
-                component={Profile}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="FriendsView"
-                component={FriendsView}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="ViewProfile"
-                component={ViewProfile}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="SearchFriends"
-                component={SearchFriends}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="Bibliotech"
-                component={Bibliotech}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="Estatisticas"
-                component={Estatisticas}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="DataBooks"
-                component={DataBooks}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="BookDetailsFriends"
-                component={BookDetailsFriends}
-            // options={{ title: 'Início' }}
-            />
-            <Drawer.Screen
-                name="LoanBooksList"
-                component={LoanBooksList}
-            // options={{ title: 'Início' }}
-            />
-            {/* <Drawer.Screen
-                name="MainScreen"
-                component={MainScreen}
-                // options={{ headerShown: false }}
-            /> */}
+export default function DrawerRoutes() {
+  return (
+    <Drawer.Navigator
+      initialRouteName="HomeTabs"
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: { backgroundColor: '#fff', width: 280 },
+        // performance
+        detachInactiveScreens: true,
+        swipeEdgeWidth: 50,
+        sceneContainerStyle: { backgroundColor: '#F8F9FA' },
+      }}
+    >
+      {/* Início (Bottom Tabs como root logado) */}
+      <Drawer.Screen
+        name="HomeTabs"
+        component={BottomTabsRoutes}
+        options={{ title: 'Início' }}
+      />
 
-        </Drawer.Navigator>
-    );
+      {/* Telas do app */}
+      <Drawer.Screen name="AddBooks" component={AddBooks} />
+      <Drawer.Screen name="SearchBooks" component={SearchBooks} />
+      <Drawer.Screen name="EditBooks" component={EditBooks} />
+      <Drawer.Screen name="BooksView" component={BooksView} />
+      <Drawer.Screen name="SearchUsers" component={SearchUsers} />
+      <Drawer.Screen name="FriendsProfile" component={FriendsProfile} />
+      <Drawer.Screen name="Loan" component={Loan} />
+      <Drawer.Screen name="Profile" component={Profile} />
+      <Drawer.Screen name="FriendsView" component={FriendsView} />
+      <Drawer.Screen name="ViewProfile" component={ViewProfile} />
+      <Drawer.Screen name="SearchFriends" component={SearchFriends} />
+      <Drawer.Screen name="Bibliotech" component={Bibliotech} />
+      <Drawer.Screen name="Estatisticas" component={Estatisticas} />
+      <Drawer.Screen name="DataBooks" component={DataBooks} />
+      <Drawer.Screen name="BookDetailsFriends" component={BookDetailsFriends} />
+      <Drawer.Screen name="LoanBooksList" component={LoanBooksList} />
+    </Drawer.Navigator>
+  );
 }
-
-
-
-export default DrawerRoutes;

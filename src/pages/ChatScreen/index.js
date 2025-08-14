@@ -100,7 +100,7 @@ const NotificationItem = memo(function NotificationItem({
         {/* BOTÕES DE EMPRÉSTIMO AGORA AQUI LOGO ABAIXO DO NOME DO LIVRO */}
         {isLoan && (
           <View style={styles.buttonsRow}>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={[styles.actionBtn, styles.primaryBtn]}
               onPress={onAcceptLoan}
               accessibilityLabel="Aceitar solicitação de empréstimo"
@@ -113,7 +113,7 @@ const NotificationItem = memo(function NotificationItem({
               accessibilityLabel="Recusar solicitação de empréstimo"
             >
               <Text style={styles.actionBtnTxt}>Recusar</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         )}
       </View>
@@ -357,8 +357,8 @@ export default function ChatScreen() {
 
       const onPress = async () => {
         if (item.status === 'unread') markAsRead(item._id);
-        if (item.imageBook) { try { await Image.prefetch(item.imageBook); } catch {} }
-        if (item.foto_perfil) { try { await Image.prefetch(item.foto_perfil); } catch {} }
+        if (item.imageBook) { try { await Image.prefetch(item.imageBook); } catch { } }
+        if (item.foto_perfil) { try { await Image.prefetch(item.foto_perfil); } catch { } }
 
         if (item.messageType === 'newFollower') {
           navigation.navigate('FriendsProfile', { friendId: item.user_id });
