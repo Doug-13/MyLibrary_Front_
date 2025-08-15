@@ -57,16 +57,11 @@ const Rating = memo(({ rating }) => {
 });
 
 const Progress = memo(({ currentPage, pageCount }) => {
-  // Converte valores
   const cur = Number(currentPage);
   const total = Number(pageCount);
-
-  // Valida: só oculta se total inválido (<= 0) ou número inválido
   if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(cur) || cur < 0) return null;
 
   const pct = Math.min(cur / total, 1);
-
-  // mínimo visual para não sumir quando 0%
   const widthPct = Math.max(pct * 100, 2);
 
   return (
@@ -76,7 +71,6 @@ const Progress = memo(({ currentPage, pageCount }) => {
     </View>
   );
 });
-
 
 const BookCard = memo(({ item, onPress }) => {
   const src =
@@ -123,7 +117,6 @@ const BookRow = memo(({ item, onPress }) => {
 const normalizeTxt = (s = '') =>
   s.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-// Converte diferentes formatos de resposta em array
 const toArray = (v) =>
   Array.isArray(v) ? v
     : Array.isArray(v?.books) ? v.books
@@ -224,7 +217,6 @@ export default function MainScreen() {
         .map((section) => {
           const books = Array.isArray(section?.books) ? section.books : [];
 
-          // filtros
           const baseFiltered = books.filter((book) => {
             if (showAllBooks) return true;
             if (showPrivateBooks && book.visibility === 'private') return true;
@@ -237,17 +229,15 @@ export default function MainScreen() {
 
           if (!q) return { ...section, books: baseFiltered };
 
-          // se prateleira bater, mantém todos os livros (respeitando filtros acima)
           const sectionMatches = normalizeTxt(section?.title || '').includes(q);
 
-          // senão, filtra por título/autor
           const searched = sectionMatches
             ? baseFiltered
             : baseFiltered.filter((b) => {
-              const t = normalizeTxt(b.title || '');
-              const a = normalizeTxt(b.author || '');
-              return t.includes(q) || a.includes(q);
-            });
+                const t = normalizeTxt(b.title || '');
+                const a = normalizeTxt(b.author || '');
+                return t.includes(q) || a.includes(q);
+              });
 
           return { ...section, books: searched };
         })
@@ -263,7 +253,6 @@ export default function MainScreen() {
 
   const fetchBooks = useCallback(async () => {
     try {
-      // evita chamada sem userMongoId definido
       if (!userMongoId) {
         setAllSections([]);
         setSections([]);
@@ -323,7 +312,6 @@ export default function MainScreen() {
     }, [fetchBooks])
   );
 
-  // Reaplica filtros/busca quando mudarem, após animação
   useEffect(() => {
     if (!allSections.length) return;
     const task = InteractionManager.runAfterInteractions(() => {
@@ -343,12 +331,10 @@ export default function MainScreen() {
   const onBookPress = useCallback(
     async (book) => {
       if (!book?.id) return;
-
-      // prefetch da capa enquanto anima
       if (book.coverUrl) {
         try {
           await Image.prefetch(book.coverUrl);
-        } catch { }
+        } catch {}
       }
       navigation.navigate('BooksView', { bookId: book.id });
     },
@@ -405,26 +391,28 @@ export default function MainScreen() {
   );
 
   const renderSection = useCallback(
-    ({ item }) => (
+    ({ item, index }) => (
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{item.title}</Text>
         <FlatList
+          key={`${item.title}-${index}-${isGridView}-${showAllBooks}-${showPrivateBooks}-${showLoanedBooks}-${debouncedQuery}`}
           data={item.books}
           renderItem={renderBookItem}
           keyExtractor={(b) => String(b.id)}
           horizontal={isGridView}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={isGridView ? styles.hList : undefined}
-          removeClippedSubviews
+          removeClippedSubviews={false}
           initialNumToRender={6}
           windowSize={10}
           getItemLayout={
-            isGridView ? (_, index) => ({ length: 168, offset: 168 * index, index }) : undefined
+            isGridView ? (_, idx) => ({ length: 168, offset: 168 * idx, index: idx }) : undefined
           }
+          extraData={{ isGridView, showAllBooks, showPrivateBooks, showLoanedBooks, debouncedQuery }}
         />
       </View>
     ),
-    [isGridView, renderBookItem]
+    [isGridView, renderBookItem, showAllBooks, showPrivateBooks, showLoanedBooks, debouncedQuery]
   );
 
   // ---------- Estados de erro ----------
@@ -571,12 +559,13 @@ export default function MainScreen() {
       <FlatList
         data={sections}
         renderItem={renderSection}
-        keyExtractor={(s) => s.title}
+        keyExtractor={(s, i) => `${s.title}::${i}`}
         contentContainerStyle={styles.listContent}
         scrollIndicatorInsets={{ right: 1 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} />
         }
+        extraData={{ isGridView, showAllBooks, showPrivateBooks, showLoanedBooks, debouncedQuery }}
       />
 
       {/* Modal de notificações */}
@@ -634,7 +623,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   iconBtn: { padding: 6, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.05)' },
-  hello: { flex: 1, textAlign: 'center', fontSize: 16, color: TEXT, fontWeight: '600' },
+  hello: { flex: 1, textAlign: 'center', fontSize: 20, color: TEXT, fontWeight: '600' },
   avatar: {
     width: 44,
     height: 44,
@@ -642,22 +631,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#fff',
-  },
-  progressWrap: {
-    marginTop: 10,
-    height: 8,
-    backgroundColor: '#E9ECEF',
-    borderRadius: 999,
-    overflow: 'hidden',
-    position: 'relative',
-    width: '100%',          // garante largura total do container
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: PRIMARY // dá cor à barra (antes não tinha)
   },
 
   headerRow: {
@@ -764,7 +737,23 @@ const styles = StyleSheet.create({
 
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
 
-
+  // Barra de progresso
+  progressWrap: {
+    marginTop: 10,
+    height: 8,
+    backgroundColor: '#E9ECEF',
+    borderRadius: 999,
+    overflow: 'hidden',
+    position: 'relative',
+    width: '100%',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: PRIMARY,
+  },
   progressPct: { position: 'absolute', right: 8, top: -18, fontSize: 11, color: MUTED },
 
   emptyWrap: { paddingHorizontal: 24, paddingTop: 30, alignItems: 'center' },
@@ -806,4 +795,3 @@ const styles = StyleSheet.create({
   closeBtn: { marginTop: 16, backgroundColor: PRIMARY, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   closeTxt: { fontSize: 16, fontWeight: '800', color: TEXT },
 });
-

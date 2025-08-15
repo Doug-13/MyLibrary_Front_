@@ -8,6 +8,7 @@ import {
   Text,
   InteractionManager,
   SafeAreaView,
+  Platform,
 } from 'react-native';
 import { TextInput, Button } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -19,11 +20,11 @@ import { useNavigation } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
 import { API_BASE_URL } from '../../config/api.js';
 import ImagePicker from 'react-native-image-crop-picker';
-import { storage } from '../../firebase/firebase.config';
-import { ref, deleteObject, uploadBytes, getDownloadURL } from 'firebase/storage';
+// ⬇️ Troca o Web SDK pelo pacote nativo:
+import storage from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-// ---------- Tema (igual ao resto do app) ----------
+// ---------- Tema ----------
 const PRIMARY = '#f3d00f';
 const BG = '#F6F7FB';
 const CARD = '#FFFFFF';
@@ -56,13 +57,13 @@ const Section = ({ title, children, right }) => (
 export default function ProfileEditScreen() {
   const navigation = useNavigation();
   const { userId, user, updateUser, setTimeStamp } = useContext(AuthContext);
-  const { control, handleSubmit, setValue, formState: { errors }, watch } = useForm({
+  const { control, handleSubmit, setValue, formState: { errors } } = useForm({
     defaultValues: { name: '', phone: '' },
     mode: 'onChange',
   });
 
   // UI/estado
-  const [foto_perfil, setfoto_perfil] = useState(null);
+  const [foto_perfil, setfoto_perfil] = useState(null); // pode ser URL OU caminho local
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -79,7 +80,7 @@ export default function ProfileEditScreen() {
 
   const genres = ['Ficção', 'Não-ficção', 'Aventura', 'Romance', 'Mistério', 'Fantasia'];
 
-  // ----------- Carregar dados (pós-transição pra navegação ficar suave) -----------
+  // ----------- Carregar dados -----------
   useEffect(() => {
     mounted.current = true;
     const task = InteractionManager.runAfterInteractions(async () => {
@@ -92,7 +93,7 @@ export default function ProfileEditScreen() {
         setAboutMe(userData.sobremim || '');
         setPreferredGenres(userData.generos_favoritos || []);
         setDateOfBirth(new Date(userData.data_nascimento || Date.now()));
-        setfoto_perfil(userData.foto_perfil || null);
+        setfoto_perfil(userData.foto_perfil || null); // aqui vem a URL do Storage (se existir)
         setVisibility(userData.visibilidade_biblioteca || 'public');
 
         const role = userData.role || {};
@@ -119,8 +120,12 @@ export default function ProfileEditScreen() {
       cropperCircleOverlay: true,
       compressImageQuality: 0.8,
       mediaType: 'photo',
+      includeBase64: false,
     })
-      .then((image) => setfoto_perfil(image.path))
+      .then((image) => {
+        // image.path => caminho local (ex.: file:///... ou content://...)
+        setfoto_perfil(image.path);
+      })
       .catch((error) => {
         if (error?.code !== 'E_PICKER_CANCELLED') {
           Alert.alert('Erro', 'Não foi possível selecionar a imagem');
@@ -134,33 +139,62 @@ export default function ProfileEditScreen() {
     );
   }, []);
 
+  // ----------- Upload Helpers -----------
+  const deleteOldPhotoIfNeeded = useCallback(async (oldUrl, newLocalPath) => {
+    if (!oldUrl) return;
+    // Se o usuário escolheu uma nova foto local diferente da URL antiga, apaga a antiga
+    if (newLocalPath && newLocalPath !== oldUrl) {
+      try {
+        // Quando você salva a URL de download no banco, use refFromURL para deletar:
+        await storage().refFromURL(oldUrl).delete();
+      } catch {
+        // Ignora se já não existir
+      }
+    }
+  }, []);
+
+  const uploadNewPhotoIfNeeded = useCallback(async (localPath, uid) => {
+    if (!localPath) return null;
+
+    // Se o valor já é uma URL http(s), é porque não mudou
+    if (/^https?:\/\//i.test(localPath)) {
+      return localPath;
+    }
+
+    // `putFile` aceita file:// e content:// (Android)
+    let uploadUri = localPath;
+    // iOS costuma precisar remover o prefixo file://
+    if (Platform.OS === 'ios' && uploadUri.startsWith('file://')) {
+      uploadUri = uploadUri.replace('file://', '');
+    }
+
+    const fileName = `${uid}-${Date.now()}.jpg`;
+    const ref = storage().ref(`images/users/${fileName}`);
+
+    // Faz upload direto do arquivo local
+    await ref.putFile(uploadUri);
+
+    // Pega URL pública
+    const url = await ref.getDownloadURL();
+    return url;
+  }, []);
+
   // ----------- Submit -----------
   const onSubmit = useCallback(async (data) => {
     setIsSaving(true);
-    let image_url = user?.foto_perfil || null;
 
     try {
-      // apaga imagem antiga se for trocar
-      if (user?.foto_perfil && foto_perfil && foto_perfil !== user.foto_perfil) {
-        try {
-          const oldRef = ref(storage, user.foto_perfil);
-          await deleteObject(oldRef);
-        } catch {}
-      }
+      // 1) Se havia foto antiga e o usuário escolheu outra, apaga a antiga
+      await deleteOldPhotoIfNeeded(user?.foto_perfil, foto_perfil);
 
-      // upload da nova
-      if (foto_perfil && foto_perfil !== user?.foto_perfil) {
-        const resp = await fetch(foto_perfil);
-        const blob = await resp.blob();
-        const imageRef = ref(storage, `images/users/${userId}-${Date.now()}`);
-        const snapshot = await uploadBytes(imageRef, blob);
-        image_url = await getDownloadURL(snapshot.ref);
-      }
+      // 2) Sobe a foto nova se for caminho local; se já for URL, mantém
+      const image_url = await uploadNewPhotoIfNeeded(foto_perfil, userId);
 
       const userData = {
         nome_completo: (data.name || '').trim(),
         telefone: (data.phone || '').trim(),
-        foto_perfil: image_url,
+        // Só atualiza o campo se tiver novo valor (ou mantém a antiga)
+        foto_perfil: image_url ?? user?.foto_perfil ?? null,
         data_nascimento: dateOfBirth.toISOString(),
         sobremim: (aboutMe || '').trim(),
         generos_favoritos: preferredGenres,
@@ -175,11 +209,27 @@ export default function ProfileEditScreen() {
       Alert.alert('Sucesso', 'Dados atualizados com sucesso!');
       navigation.goBack();
     } catch (e) {
+      console.log('[ProfileEdit] Erro ao salvar:', e?.message);
       Alert.alert('Erro', 'Houve um problema ao atualizar seus dados.');
     } finally {
       setIsSaving(false);
     }
-  }, [aboutMe, dateOfBirth, foto_perfil, preferredGenres, isReader, isWriter, visibility, user?.foto_perfil, userId, updateUser, navigation, setTimeStamp]);
+  }, [
+    aboutMe,
+    dateOfBirth,
+    foto_perfil,
+    preferredGenres,
+    isReader,
+    isWriter,
+    visibility,
+    user?.foto_perfil,
+    userId,
+    updateUser,
+    navigation,
+    setTimeStamp,
+    deleteOldPhotoIfNeeded,
+    uploadNewPhotoIfNeeded,
+  ]);
 
   // ----------- Loading -----------
   if (loading) {
