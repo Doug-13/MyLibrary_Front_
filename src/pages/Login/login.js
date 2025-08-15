@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: SURFACE,
+    backgroundColor:"#B42318",
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   googleMonogramText: { fontWeight: '700', color: '#000' },
-  googleBtnText: { fontWeight: '700', color: TEXT_PRIMARY },
+  googleBtnText: { fontWeight: '700', color: SURFACE },
 
   linksRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 16 },
   linkText: { color: TEXT_PRIMARY, textDecorationLine: 'underline', fontSize: 14 },
