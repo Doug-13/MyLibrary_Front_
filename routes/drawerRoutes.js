@@ -4,7 +4,7 @@ import BottomTabsRoutes from './bottomTabsRoutes';
 import CustomDrawerContent from '../src/components/CustomDrawer';
 
 import AddBooks from '../src/pages/AddBooks';
-import DataBooks from '../src/pages/DataBooks';
+// import DataBooks from '../src/pages/DataBooks';
 import EditBooks from '../src/pages/EditBooks';
 import BooksView from '../src/pages/BooksView';
 import SearchUsers from '../src/pages/SearchUsers';
@@ -19,6 +19,13 @@ import BookDetailsFriends from '../src/pages/BookDetailsFriends';
 import LoanBooksList from '../src/pages/LoanBooksList';
 import Profile from '../src/pages/Profile';
 import ViewProfile from '../src/pages/ViewProfile';
+import Settings from '../src/pages/Settings';
+import HelpCenterScreen from '../src/pages/Help/HelpCenterScreen';
+import HelpArticle from '../src/pages/Help/HelpArticle';
+import AboutScreen from '../src/pages/Help/AboutScreen';
+import PrivacyScreen from '../src/pages/Help/PrivacyScreen';
+import TermsScreen from '../src/pages/Help/TermsScreen';
+
 
 const Drawer = createDrawerNavigator();
 
@@ -57,9 +64,15 @@ export default function DrawerRoutes() {
       <Drawer.Screen name="SearchFriends" component={SearchFriends} />
       <Drawer.Screen name="Bibliotech" component={Bibliotech} />
       <Drawer.Screen name="Estatisticas" component={Estatisticas} />
-      <Drawer.Screen name="DataBooks" component={DataBooks} />
+      {/* <Drawer.Screen name="DataBooks" component={DataBooks} /> */}
       <Drawer.Screen name="BookDetailsFriends" component={BookDetailsFriends} />
       <Drawer.Screen name="LoanBooksList" component={LoanBooksList} />
+      <Drawer.Screen name="Settings" component={Settings} />
+      <Drawer.Screen name="HelpCenterScreen" component={HelpCenterScreen} />
+      <Drawer.Screen name="HelpArticle" component={HelpArticle} />
+      <Drawer.Screen name="AboutScreen" component={AboutScreen} />
+      <Drawer.Screen name="PrivacyScreen" component={PrivacyScreen} />
+      <Drawer.Screen name="TermsScreen" component={TermsScreen} />
     </Drawer.Navigator>
   );
 }

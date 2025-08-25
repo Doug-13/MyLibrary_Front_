@@ -132,7 +132,7 @@ export default function ForgotPassword() {
 }
 
 /** Paleta consistente com as outras telas */
-const BRAND_BG = '#EAF2FF';      // fundo suave (azul claro)
+const BRAND_BG = '#a1faf3ff';      // fundo suave (azul claro)
 const TEXT_PRIMARY = '#111111';
 const TEXT_SECONDARY = '#555';
 const SURFACE = '#FFFFFF';
@@ -212,3 +212,4 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
 });
+

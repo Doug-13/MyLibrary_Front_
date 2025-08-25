@@ -11,9 +11,11 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   FlatList,
+  StatusBar,
 } from 'react-native';
 import { Card } from 'react-native-paper';
 import { AuthContext } from '../../../context/AuthContext.js';
+import { ThemeContext } from '../../../context/ThemeContext.js';
 import { useNavigation } from '@react-navigation/native';
 import { TabView, TabBar } from 'react-native-tab-view';
 import FollowButton from '../../components/FolowButton.js';
@@ -21,20 +23,6 @@ import LottieView from 'lottie-react-native';
 import { API_BASE_URL } from '../../config/api.js';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-
-// ===== Design System (MyLibrary App) =====
-const COLORS = {
-  primary: '#F3D00F',
-  secondary: '#4E8CFF',
-  bg: '#F8F9FA',
-  card: '#FFFFFF',
-  text: '#2D3436',
-  textSecondary: '#636E72',
-  label: '#B2BEC3',
-  border: '#E0E0E0',
-  error: '#DC3545',
-  success: '#28A745',
-};
 
 const RADIUS = 12;
 const ELEV = 2;
@@ -54,9 +42,13 @@ const FriendsView = () => {
   const [counts, setCounts] = useState({ friends: 0, followers: 0, following: 0 });
 
   const { userMongoId, timeStamp } = useContext(AuthContext);
+  const { theme, navTheme } = useContext(ThemeContext);
+  const barStyle = navTheme.dark ? 'light-content' : 'dark-content';
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   const navigation = useNavigation();
 
-  // Rotas ESTÁTICAS (títulos não mudam)
+  // Rotas fixas
   const [routes] = useState([
     { key: 'friends', title: 'Amigos' },
     { key: 'followers', title: 'Seguidores' },
@@ -94,7 +86,6 @@ const FriendsView = () => {
       setFollowing(followingData);
       setFriends(friendsData);
 
-      // Atualiza APENAS as contagens (rótulos continuam estáticos)
       setCounts({
         friends: friendsData.length,
         followers: followersData.length,
@@ -187,10 +178,10 @@ const FriendsView = () => {
         </TouchableOpacity>
       );
     },
-    [navigation, userMongoId]
+    [navigation, userMongoId, styles]
   );
 
-  // Lista (FlatList para performance)
+  // Lista
   const renderList = useCallback(
     (data, type) => {
       const uniqueData = removeDuplicatesById(data, 'user._id');
@@ -227,7 +218,7 @@ const FriendsView = () => {
         </SafeAreaView>
       );
     },
-    [removeDuplicatesById, renderUserCard]
+    [removeDuplicatesById, renderUserCard, styles]
   );
 
   const renderScene = useCallback(
@@ -248,18 +239,19 @@ const FriendsView = () => {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: COLORS.bg }}
+      style={{ flex: 1, backgroundColor: theme.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      <StatusBar barStyle={barStyle} backgroundColor={theme.primary} />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={{ flex: 1 }}>
           {/* Search */}
           <View style={styles.searchWrap}>
-            <Icon name="search" size={18} color={COLORS.textSecondary} />
+            <Icon name="search" size={18} color={theme.textSecondary} />
             <TextInput
               style={styles.searchInput}
               placeholder="Pesquise pelo nome..."
-              placeholderTextColor={COLORS.label}
+              placeholderTextColor={theme.label}
               value={searchText}
               onChangeText={setSearchText}
               returnKeyType="search"
@@ -269,14 +261,14 @@ const FriendsView = () => {
                 onPress={() => setSearchText('')}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Icon name="close" size={18} color={COLORS.textSecondary} />
+                <Icon name="close" size={18} color={theme.textSecondary} />
               </TouchableOpacity>
             )}
           </View>
 
-          {/* FAB (vai para SearchFriends) */}
+          {/* FAB */}
           <TouchableOpacity style={styles.fab} onPress={handleAddBook} activeOpacity={0.9}>
-            <Icon name="person-add-alt-1" size={24} color={COLORS.text} />
+            <Icon name="person-add-alt-1" size={24} color={theme.text} />
           </TouchableOpacity>
 
           {/* Tabs */}
@@ -291,8 +283,8 @@ const FriendsView = () => {
                 style={styles.tabBar}
                 indicatorStyle={styles.indicator}
                 tabStyle={styles.tabStyle}
-                inactiveColor={COLORS.textSecondary}
-                activeColor={COLORS.text}
+                inactiveColor={theme.textSecondary}
+                activeColor={theme.text}
                 pressColor="transparent"
                 renderLabel={({ route, focused }) => (
                   <View style={styles.tabLabelWrap}>
@@ -315,139 +307,132 @@ const FriendsView = () => {
 
 const AVATAR = 50;
 
-const styles = StyleSheet.create({
-  // Search
-  searchWrap: {
-    marginHorizontal: 12,
-    marginTop: 10,
-    marginBottom: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: COLORS.card,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    elevation: ELEV,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  searchInput: {
-    flex: 1,
-    color: COLORS.text,
-    paddingVertical: 0,
-    fontSize: 14,
-  },
+const createStyles = (theme) =>
+  StyleSheet.create({
+    // Search
+    searchWrap: {
+      marginHorizontal: 12,
+      marginTop: 10,
+      marginBottom: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: theme.card,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.border,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      elevation: ELEV,
+      shadowColor: '#000',
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    searchInput: {
+      flex: 1,
+      color: theme.text,
+      paddingVertical: 0,
+      fontSize: 14,
+    },
 
-  // TabBar
-  tabBar: {
-    backgroundColor: COLORS.primary,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F6E68B',
-    elevation: 0,
-  },
-  tabStyle: {
-    flex: 1, // cada aba ocupa espaço igual
-  },
-  tabLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  tabLabel: {
-    fontWeight: '800',
-    textTransform: 'none',
-    fontSize: 13,
-    letterSpacing: 0.2,
-    color: COLORS.text,
-  },
-  tabLabelActive: {
-    color: COLORS.text,
-  },
-  indicator: {
-    backgroundColor: '#111827',
-    height: 3,
-    borderRadius: 3,
-    marginHorizontal: 16,
-  },
-  badge: {
-    minWidth: 26, // largura fixa evita “pulos”
-    height: 18,
-    paddingHorizontal: 6,
-    borderRadius: 9,
-    backgroundColor: '#111827',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '800',
-  },
+    // TabBar
+    tabBar: {
+      backgroundColor: theme.primary,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F6E68B',
+      elevation: 0,
+    },
+    tabStyle: { flex: 1 },
+    tabLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    tabLabel: {
+      fontWeight: '800',
+      textTransform: 'none',
+      fontSize: 13,
+      letterSpacing: 0.2,
+      color: theme.text,
+    },
+    tabLabelActive: { color: theme.text },
+    indicator: {
+      backgroundColor: theme.text,
+      height: 3,
+      borderRadius: 3,
+      marginHorizontal: 16,
+    },
+    badge: {
+      minWidth: 26,
+      height: 18,
+      paddingHorizontal: 6,
+      borderRadius: 9,
+      backgroundColor: theme.text,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badgeText: {
+      color: theme.bg,
+      fontSize: 11,
+      fontWeight: '800',
+    },
 
-  // Cards de usuário
-  friendCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 10,
-    elevation: ELEV,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  friendInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatarWrap: {
-    width: AVATAR,
-    height: AVATAR,
-    borderRadius: AVATAR / 2,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    backgroundColor: '#F1F5F9',
-    overflow: 'hidden',
-  },
-  friendImage: { width: '100%', height: '100%' },
-  friendDetails: { flex: 1 },
-  friendName: { fontSize: 16, fontWeight: '800', color: COLORS.text },
-  friendEmail: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+    // Cards de usuário
+    friendCard: {
+      backgroundColor: theme.card,
+      borderRadius: RADIUS,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      marginBottom: 10,
+      elevation: ELEV,
+      shadowColor: '#000',
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    friendInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    avatarWrap: {
+      width: AVATAR,
+      height: AVATAR,
+      borderRadius: AVATAR / 2,
+      borderWidth: 2,
+      borderColor: theme.border,
+      backgroundColor: '#F1F5F9',
+      overflow: 'hidden',
+    },
+    friendImage: { width: '100%', height: '100%' },
+    friendDetails: { flex: 1 },
+    friendName: { fontSize: 16, fontWeight: '800', color: theme.text },
+    friendEmail: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
 
-  friendVisibility: { fontSize: 12, marginTop: 6 },
-  publicLibrary: { color: COLORS.success, fontStyle: 'italic' },
-  privateLibrary: { color: COLORS.error, fontStyle: 'italic' },
-  friendsLibrary: { color: '#FF9800', fontStyle: 'italic' },
+    friendVisibility: { fontSize: 12, marginTop: 6 },
+    publicLibrary: { color: theme.success ?? '#28A745', fontStyle: 'italic' },
+    privateLibrary: { color: theme.error, fontStyle: 'italic' },
+    friendsLibrary: { color: '#FF9800', fontStyle: 'italic' },
 
-  // Empty
-  emptyWrap: { alignItems: 'center', marginTop: 40, paddingHorizontal: 24 },
-  emptyText: { marginTop: 8, color: COLORS.textSecondary, fontSize: 14, textAlign: 'center' },
+    // Empty
+    emptyWrap: { alignItems: 'center', marginTop: 40, paddingHorizontal: 24 },
+    emptyText: { marginTop: 8, color: theme.textSecondary, fontSize: 14, textAlign: 'center' },
 
-  // FAB
-  fab: {
-    position: 'absolute',
-    bottom: 70,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E9CC16',
-    zIndex: 10,
-    elevation: ELEV,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-  },
-});
+    // FAB
+    fab: {
+      position: 'absolute',
+      bottom: 70,
+      right: 20,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: theme.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#E9CC16',
+      zIndex: 10,
+      elevation: ELEV,
+      shadowColor: '#000',
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+    },
+  });
 
 export default FriendsView;

@@ -86,6 +86,7 @@ const CustomDrawerContent = (props) => {
   const goHome = useCallback(() => props.navigation.navigate('HomeTabs'), [props.navigation]);
   const goBibliotech = useCallback(() => props.navigation.navigate('Bibliotech'), [props.navigation]);
   const goStats = useCallback(() => props.navigation.navigate('Estatisticas'), [props.navigation]);
+  const goSett = useCallback(() => props.navigation.navigate('Settings'), [props.navigation]);
 
   const handleLogout = useCallback(() => {
     Alert.alert(
@@ -160,6 +161,12 @@ const CustomDrawerContent = (props) => {
             label="Estatísticas"
             active={currentRoute === 'Estatisticas'}
             onPress={goStats}
+          />
+          <MenuItem
+            icon="settings"
+            label="Configurações"
+            active={currentRoute === 'Configurações'}
+            onPress={goSett}
           />
         </View>
       </DrawerContentScrollView>

@@ -29,34 +29,29 @@ import { AuthContext } from '../../../context/AuthContext.js';
 import ModalBook from '../../components/Modal/index.js';
 import { API_BASE_URL } from '../../config/api.js';
 
-// ---------- Tema ----------
-const PRIMARY = '#f3d00f';
-const BG = '#F6F7FB';
-const CARD = '#FFFFFF';
-const TEXT = '#1F2937';
-const MUTED = '#6B7280';
-const BORDER = '#E5E7EB';
+// ✅ importe o ThemeContext
+import { ThemeContext } from '../../../context/ThemeContext.js';
 
 // ---------- Subcomponentes ----------
-const Rating = memo(({ rating }) => {
+const Rating = memo(({ rating, color }) => {
   if (!rating) return null;
   const full = Math.floor(rating);
   const half = rating % 1 >= 0.5;
   const empty = 5 - full - (half ? 1 : 0);
   return (
-    <View style={styles.ratingRow}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 }}>
       {Array.from({ length: full }).map((_, i) => (
-        <Ionicons key={`f-${i}`} name="star" size={14} />
+        <Ionicons key={`f-${i}`} name="star" size={14} color={color} />
       ))}
-      {half && <Ionicons name="star-half" size={14} />}
+      {half && <Ionicons name="star-half" size={14} color={color} />}
       {Array.from({ length: empty }).map((_, i) => (
-        <Ionicons key={`e-${i}`} name="star-outline" size={14} />
+        <Ionicons key={`e-${i}`} name="star-outline" size={14} color={color} />
       ))}
     </View>
   );
 });
 
-const Progress = memo(({ currentPage, pageCount }) => {
+const Progress = memo(({ currentPage, pageCount, barColor, trackColor, textColor }) => {
   const cur = Number(currentPage);
   const total = Number(pageCount);
   if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(cur) || cur < 0) return null;
@@ -65,14 +60,16 @@ const Progress = memo(({ currentPage, pageCount }) => {
   const widthPct = Math.max(pct * 100, 2);
 
   return (
-    <View style={styles.progressWrap} accessibilityLabel={`Progresso de leitura ${Math.round(pct * 100)}%`}>
-      <View style={[styles.progressBar, { width: `${widthPct}%` }]} />
-      <Text style={styles.progressPct}>{Math.round(pct * 100)}%</Text>
+    <View style={[{ marginTop: 10, height: 8, borderRadius: 999, overflow: 'hidden', position: 'relative', width: '100%', backgroundColor: trackColor }]} accessibilityLabel={`Progresso de leitura ${Math.round(pct * 100)}%`}>
+      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${widthPct}%`, backgroundColor: barColor }} />
+      <Text style={{ position: 'absolute', right: 8, top: -18, fontSize: 11, color: textColor }}>
+        {Math.round(pct * 100)}%
+      </Text>
     </View>
   );
 });
 
-const BookCard = memo(({ item, onPress }) => {
+const BookCard = memo(({ item, onPress, styles, textColorMuted, starColor, barColor, trackColor }) => {
   const src =
     item.coverUrl && item.coverUrl.trim() !== ''
       ? { uri: item.coverUrl }
@@ -82,16 +79,22 @@ const BookCard = memo(({ item, onPress }) => {
     <Pressable style={styles.card} onPress={() => onPress(item)}>
       <Image source={src} style={styles.cover} />
       <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-      <Text style={styles.cardAuthor} numberOfLines={1}>{item.author}</Text>
-      <Rating rating={item.rating} />
+      <Text style={[styles.cardAuthor, { color: textColorMuted }]} numberOfLines={1}>{item.author}</Text>
+      <Rating rating={item.rating} color={starColor} />
       {item.status === 'lendo' && (
-        <Progress currentPage={item.currentPage} pageCount={item.page_count} />
+        <Progress
+          currentPage={item.currentPage}
+          pageCount={item.page_count}
+          barColor={barColor}
+          trackColor={trackColor}
+          textColor={textColorMuted}
+        />
       )}
     </Pressable>
   );
 });
 
-const BookRow = memo(({ item, onPress }) => {
+const BookRow = memo(({ item, onPress, styles, textColorMuted, starColor, barColor, trackColor, chevronColor }) => {
   const src =
     item.coverUrl && item.coverUrl.trim() !== ''
       ? { uri: item.coverUrl }
@@ -102,13 +105,19 @@ const BookRow = memo(({ item, onPress }) => {
       <Image source={src} style={styles.rowCover} />
       <View style={{ flex: 1 }}>
         <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.rowAuthor} numberOfLines={1}>{item.author}</Text>
-        <Rating rating={item.rating} />
+        <Text style={[styles.rowAuthor, { color: textColorMuted }]} numberOfLines={1}>{item.author}</Text>
+        <Rating rating={item.rating} color={starColor} />
         {item.status === 'lendo' && (
-          <Progress currentPage={item.currentPage} pageCount={item.page_count} />
+          <Progress
+            currentPage={item.currentPage}
+            pageCount={item.page_count}
+            barColor={barColor}
+            trackColor={trackColor}
+            textColor={textColorMuted}
+          />
         )}
       </View>
-      <Ionicons name="chevron-forward" size={18} color={MUTED} />
+      <Ionicons name="chevron-forward" size={18} color={chevronColor} />
     </Pressable>
   );
 });
@@ -126,7 +135,19 @@ const toArray = (v) =>
 // ---------- Tela ----------
 export default function MainScreen() {
   const navigation = useNavigation();
-  const { nome_completo, primeiro_nome, userProfilePicture, userMongoId } = useContext(AuthContext);
+  const { nome_completo, primeiro_nome, foto_perfil, userMongoId } = useContext(AuthContext);
+
+  // ✅ tema atual
+  const { theme } = useContext(ThemeContext);
+
+  // altíssimo contraste em cima do amarelo (primary)
+  const onPrimary = '#111827';
+
+  const styles = useMemo(() => mkStyles(theme, onPrimary), [theme]);
+
+  const textMuted = theme.textSecondary;
+  const border = theme.border;
+  const card = theme.card;
 
   const [sections, setSections] = useState([]);
   const [allSections, setAllSections] = useState([]);
@@ -154,7 +175,6 @@ export default function MainScreen() {
   const isFocused = useIsFocused();
   const mounted = useRef(true);
 
-  // Debounce 300ms
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
     return () => clearTimeout(t);
@@ -386,8 +406,29 @@ export default function MainScreen() {
   // Renderers
   const renderBookItem = useCallback(
     ({ item }) =>
-      isGridView ? <BookCard item={item} onPress={onBookPress} /> : <BookRow item={item} onPress={onBookPress} />,
-    [isGridView, onBookPress]
+      isGridView ? (
+        <BookCard
+          item={item}
+          onPress={onBookPress}
+          styles={styles}
+          textColorMuted={textMuted}
+          starColor={theme.primary}
+          barColor={theme.primary}
+          trackColor={theme.border}
+        />
+      ) : (
+        <BookRow
+          item={item}
+          onPress={onBookPress}
+          styles={styles}
+          textColorMuted={textMuted}
+          starColor={theme.primary}
+          barColor={theme.primary}
+          trackColor={theme.border}
+          chevronColor={textMuted}
+        />
+      ),
+    [isGridView, onBookPress, styles, textMuted, theme.primary, theme.border]
   );
 
   const renderSection = useCallback(
@@ -412,7 +453,7 @@ export default function MainScreen() {
         />
       </View>
     ),
-    [isGridView, renderBookItem, showAllBooks, showPrivateBooks, showLoanedBooks, debouncedQuery]
+    [isGridView, renderBookItem, showAllBooks, showPrivateBooks, showLoanedBooks, debouncedQuery, styles]
   );
 
   // ---------- Estados de erro ----------
@@ -421,7 +462,7 @@ export default function MainScreen() {
       <SafeAreaView style={[styles.container, { justifyContent: 'center' }]}>
         <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={fetchBooks}>
-          <Ionicons name="refresh" size={18} color={TEXT} />
+          <Ionicons name="refresh" size={18} color={onPrimary} />
           <Text style={styles.retryTxt}>Tentar novamente</Text>
         </TouchableOpacity>
       </SafeAreaView>
@@ -439,18 +480,18 @@ export default function MainScreen() {
           onPress={() => navigation.openDrawer()}
           accessibilityLabel="Abrir menu"
         >
-          <MaterialIcons name="menu" size={26} color={TEXT} />
+          <MaterialIcons name="menu" size={26} color={onPrimary} />
         </TouchableOpacity>
 
         <Text style={styles.hello}>
-          Olá, <Text style={{ fontWeight: '800' }}>{primeiro_nome}</Text>
+          Olá, <Text style={{ fontWeight: '800', color: onPrimary }}>{primeiro_nome}</Text>
         </Text>
 
         <TouchableOpacity onPress={() => navigation.navigate('Profile')} accessibilityLabel="Abrir perfil">
           <Image
             source={
-              userProfilePicture && userProfilePicture.trim() !== ''
-                ? { uri: userProfilePicture }
+              foto_perfil && foto_perfil.trim() !== ''
+                ? { uri: foto_perfil }
                 : require('../../../assets/perfilLendo.png')
             }
             style={styles.avatar}
@@ -462,25 +503,25 @@ export default function MainScreen() {
       <View style={styles.headerRow}>
         <Text style={styles.headerTitle}>Minha Biblioteca</Text>
         <TouchableOpacity style={styles.toggle} onPress={onToggleView} accessibilityLabel="Alternar visualização">
-          <Ionicons name={isGridView ? 'list' : 'grid'} size={18} color={TEXT} />
+          <Ionicons name={isGridView ? 'list' : 'grid'} size={18} color={theme.text} />
           <Text style={styles.toggleTxt}>{isGridView ? 'Lista' : 'Grade'}</Text>
         </TouchableOpacity>
       </View>
 
       {/* Busca */}
       <View style={styles.searchWrap}>
-        <Ionicons name="search" size={18} color={MUTED} />
+        <Ionicons name="search" size={18} color={textMuted} />
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholder="Buscar por livro ou prateleira…"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={theme.label}
           style={styles.searchInput}
           returnKeyType="search"
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')} accessibilityLabel="Limpar busca">
-            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            <Ionicons name="close-circle" size={18} color={theme.label} />
           </TouchableOpacity>
         )}
       </View>
@@ -530,7 +571,7 @@ export default function MainScreen() {
       {/* Sem resultados para a busca */}
       {debouncedQuery.length > 0 && sections.length === 0 && (
         <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-          <Text style={{ color: MUTED }}>
+          <Text style={{ color: textMuted }}>
             Nenhum resultado para “{debouncedQuery}”. Tente outro termo.
           </Text>
         </View>
@@ -563,7 +604,7 @@ export default function MainScreen() {
         contentContainerStyle={styles.listContent}
         scrollIndicatorInsets={{ right: 1 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
         }
         extraData={{ isGridView, showAllBooks, showPrivateBooks, showLoanedBooks, debouncedQuery }}
       />
@@ -610,188 +651,172 @@ export default function MainScreen() {
   );
 }
 
-// ---------- Estilos ----------
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+// ---------- Estilos dinâmicos por tema ----------
+function mkStyles(t, onPrimary) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: t.bg },
 
-  topBar: {
-    backgroundColor: PRIMARY,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 12,
-  },
-  iconBtn: { padding: 6, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.05)' },
-  hello: { flex: 1, textAlign: 'center', fontSize: 20, color: TEXT, fontWeight: '600' },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#fff',
-  },
+    topBar: {
+      backgroundColor: t.primary,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      gap: 12,
+    },
+    iconBtn: { padding: 6, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.05)' },
+    hello: { flex: 1, textAlign: 'center', fontSize: 20, color: onPrimary, fontWeight: '600' },
+    avatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: '#fff',
+      borderWidth: 1,
+      borderColor: '#fff',
+    },
 
-  headerRow: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerTitle: { fontSize: 28, color: TEXT, fontWeight: '800', flex: 1 },
-  toggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: CARD,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  toggleTxt: { color: TEXT, fontWeight: '600' },
+    headerRow: {
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 6,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    headerTitle: { fontSize: 28, color: t.text, fontWeight: '800', flex: 1 },
+    toggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: t.card,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: t.border,
+    },
+    toggleTxt: { color: t.text, fontWeight: '600' },
 
-  searchWrap: {
-    marginTop: 8,
-    marginHorizontal: 16,
-    marginBottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: CARD,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 0 },
+    searchWrap: {
+      marginTop: 8,
+      marginHorizontal: 16,
+      marginBottom: 6,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: t.card,
+      borderWidth: 1,
+      borderColor: t.border,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    searchInput: { flex: 1, fontSize: 14, color: t.text, paddingVertical: 0 },
 
-  filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  chipActive: { backgroundColor: PRIMARY, borderColor: PRIMARY },
-  chipTxt: { color: TEXT, fontWeight: '600' },
-  chipTxtActive: { color: '#111827' },
-  badge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 6,
-    backgroundColor: BORDER,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeActive: { backgroundColor: '#111827' },
-  badgeTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
+    filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      borderWidth: 1,
+      borderColor: t.border,
+      backgroundColor: t.card,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+    },
+    chipActive: { backgroundColor: t.primary, borderColor: t.primary },
+    chipTxt: { color: t.text, fontWeight: '600' },
+    chipTxtActive: { color: '#111827' }, // mantém alto contraste sobre o amarelo
 
-  listContent: { paddingBottom: 24 },
+    badge: {
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
+      paddingHorizontal: 6,
+      backgroundColor: t.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badgeActive: { backgroundColor: '#111827' }, // mantém contraste independente do tema
+    badgeTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
-  section: { paddingHorizontal: 16, paddingTop: 14 },
-  sectionTitle: { fontSize: 20, fontWeight: '800', color: TEXT, marginBottom: 10 },
+    listContent: { paddingBottom: 24 },
 
-  hList: { paddingRight: 8 },
+    section: { paddingHorizontal: 16, paddingTop: 14 },
+    sectionTitle: { fontSize: 20, fontWeight: '800', color: t.text, marginBottom: 10 },
 
-  card: {
-    width: 132,
-    backgroundColor: CARD,
-    borderRadius: 16,
-    padding: 10,
-    marginRight: 12,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  cover: { width: '100%', height: 164, borderRadius: 10, marginBottom: 8, backgroundColor: '#EEE' },
-  cardTitle: { fontSize: 12, fontWeight: '700', color: TEXT },
-  cardAuthor: { fontSize: 11, color: MUTED, marginTop: 2 },
+    hList: { paddingRight: 8 },
 
-  row: {
-    backgroundColor: CARD,
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 10,
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  rowCover: { width: 60, height: 88, borderRadius: 8, backgroundColor: '#EEE' },
-  rowTitle: { fontSize: 14, fontWeight: '800', color: TEXT },
-  rowAuthor: { fontSize: 12, color: MUTED, marginTop: 2 },
+    card: {
+      width: 132,
+      backgroundColor: t.card,
+      borderRadius: 16,
+      padding: 10,
+      marginRight: 12,
+      elevation: 3,
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      borderWidth: 1,
+      borderColor: t.border,
+    },
+    cover: { width: '100%', height: 164, borderRadius: 10, marginBottom: 8, backgroundColor: '#EEE' },
+    cardTitle: { fontSize: 12, fontWeight: '700', color: t.text },
+    cardAuthor: { fontSize: 11, marginTop: 2 },
 
-  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
+    row: {
+      backgroundColor: t.card,
+      borderRadius: 16,
+      padding: 12,
+      marginBottom: 10,
+      flexDirection: 'row',
+      gap: 12,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: t.border,
+    },
+    rowCover: { width: 60, height: 88, borderRadius: 8, backgroundColor: '#EEE' },
+    rowTitle: { fontSize: 14, fontWeight: '800', color: t.text },
+    rowAuthor: { fontSize: 12, marginTop: 2 },
 
-  // Barra de progresso
-  progressWrap: {
-    marginTop: 10,
-    height: 8,
-    backgroundColor: '#E9ECEF',
-    borderRadius: 999,
-    overflow: 'hidden',
-    position: 'relative',
-    width: '100%',
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: PRIMARY,
-  },
-  progressPct: { position: 'absolute', right: 8, top: -18, fontSize: 11, color: MUTED },
+    emptyWrap: { paddingHorizontal: 24, paddingTop: 30, alignItems: 'center' },
+    emptyImg: { width: 200, height: 200, marginBottom: 10 },
+    emptyHello: { fontSize: 20, fontWeight: '800', color: t.text, marginBottom: 6, textAlign: 'center' },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: t.text, marginBottom: 6, textAlign: 'center' },
+    emptyMsg: { fontSize: 14, color: t.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 4 },
 
-  emptyWrap: { paddingHorizontal: 24, paddingTop: 30, alignItems: 'center' },
-  emptyImg: { width: 200, height: 200, marginBottom: 10 },
-  emptyHello: { fontSize: 20, fontWeight: '800', color: TEXT, marginBottom: 6, textAlign: 'center' },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: TEXT, marginBottom: 6, textAlign: 'center' },
-  emptyMsg: { fontSize: 14, color: MUTED, textAlign: 'center', lineHeight: 20, marginBottom: 4 },
+    loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: t.bg },
+    loadingText: { marginTop: 12, fontSize: 16, color: t.text, fontWeight: '600' },
 
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG },
-  loadingText: { marginTop: 12, fontSize: 16, color: TEXT, fontWeight: '600' },
+    errorText: {
+      color: '#B91C1C',
+      textAlign: 'center',
+      fontSize: 16,
+      marginBottom: 12,
+      paddingHorizontal: 24,
+    },
+    retryBtn: {
+      alignSelf: 'center',
+      flexDirection: 'row',
+      gap: 8,
+      backgroundColor: t.primary,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#EAB308',
+    },
+    retryTxt: { color: onPrimary, fontWeight: '700' },
 
-  errorText: {
-    color: '#B91C1C',
-    textAlign: 'center',
-    fontSize: 16,
-    marginBottom: 12,
-    paddingHorizontal: 24,
-  },
-  retryBtn: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#EAB308',
-  },
-  retryTxt: { color: TEXT, fontWeight: '700' },
-
-  // Modal
-  modalBackground: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
-  modalCard: { width: '90%', backgroundColor: CARD, borderRadius: 20, padding: 20, elevation: 10 },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: TEXT, marginBottom: 12, textAlign: 'center' },
-  notifItem: { marginVertical: 8, padding: 14, backgroundColor: '#FAFAFA', borderRadius: 12, borderWidth: 1, borderColor: BORDER },
-  notifTitle: { fontWeight: '800', fontSize: 15, color: TEXT, marginBottom: 4 },
-  notifMsg: { fontSize: 13, color: MUTED },
-  closeBtn: { marginTop: 16, backgroundColor: PRIMARY, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
-  closeTxt: { fontSize: 16, fontWeight: '800', color: TEXT },
-});
+    // Modal
+    modalBackground: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+    modalCard: { width: '90%', backgroundColor: t.card, borderRadius: 20, padding: 20, elevation: 10, borderWidth: 1, borderColor: t.border },
+    modalTitle: { fontSize: 20, fontWeight: '800', color: t.text, marginBottom: 12, textAlign: 'center' },
+    notifItem: { marginVertical: 8, padding: 14, backgroundColor: t.bg, borderRadius: 12, borderWidth: 1, borderColor: t.border },
+    notifTitle: { fontWeight: '800', fontSize: 15, color: t.text, marginBottom: 4 },
+    notifMsg: { fontSize: 13, color: t.textSecondary },
+    closeBtn: { marginTop: 16, backgroundColor: t.primary, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+    closeTxt: { fontSize: 16, fontWeight: '800', color: onPrimary },
+  });
+}
